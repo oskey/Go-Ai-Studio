@@ -28,8 +28,9 @@ export function Combobox<T>({
   getItemLabel,
 }: ComboboxProps<T>) {
   const [open, setOpen] = React.useState(false)
+  const safeItems = Array.isArray(items) ? items : []
 
-  const selectedItem = items.find((item) => getItemValue(item) === value)
+  const selectedItem = safeItems.find((item) => getItemValue(item) === value)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -44,12 +45,17 @@ export function Combobox<T>({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command>
+        <Command
+          filter={(itemValue, search) => {
+            if (!search) return 1
+            return itemValue.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
+          }}
+        >
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
-              {items.map((item) => (
+              {safeItems.map((item) => (
                 <CommandItem
                   key={getItemValue(item)}
                   value={getItemLabel(item)} // Use label for searching

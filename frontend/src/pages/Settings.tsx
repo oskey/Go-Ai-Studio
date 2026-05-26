@@ -59,7 +59,7 @@ export default function Settings() {
     useEffect(() => {
         // Fetch Workflows
         axios.get("/api/workflows")
-            .then(res => setWorkflows(res.data))
+            .then(res => setWorkflows(Array.isArray(res.data) ? res.data : []))
             .catch(err => console.error(err));
 
         // Fetch Settings
@@ -127,8 +127,9 @@ export default function Settings() {
             });
     };
 
-    const imageWorkflows = workflows.filter(w => w.type === "image" && w.workflow_name !== "Qwen-Image-Edit");
-    const videoWorkflows = workflows.filter(w => w.type === "video");
+    const workflowList = Array.isArray(workflows) ? workflows : [];
+    const imageWorkflows = workflowList.filter(w => w.type === "image" && w.workflow_name !== "Qwen-Image-Edit");
+    const videoWorkflows = workflowList.filter(w => w.type === "video");
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">

@@ -1,10 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
-	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -53,7 +54,7 @@ func main() {
 		log.Printf("查找工作流文件时出错: %v", err)
 	}
 
-	var parsedWorkflows []models.WorkflowMetadata
+	parsedWorkflows := make([]models.WorkflowMetadata, 0)
 	for _, file := range files {
 		meta, err := workflow.ParseWorkflow(file)
 		if err != nil {
@@ -412,14 +413,8 @@ func main() {
 }
 
 func registerFrontendRoutes(r *gin.Engine) {
-	staticFS, err := fs.Sub(frontendDist, "frontend/dist")
-	if err != nil {
-		log.Printf("前端静态资源不可用: %v", err)
-		return
-	}
-
-	r.StaticFS("/assets", http.FS(staticFS))
-	r.StaticFileFS("/vite.svg", "vite.svg", http.FS(staticFS))
+	r.GET("/assets/*filepath", serveEmbeddedFrontendAsset)
+	r.GET("/vite.svg", serveEmbeddedFrontendAsset)
 
 	r.NoRoute(func(c *gin.Context) {
 		if c.Request.Method != http.MethodGet ||
@@ -436,6 +431,22 @@ func registerFrontendRoutes(r *gin.Engine) {
 		}
 		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	})
+}
+
+func serveEmbeddedFrontendAsset(c *gin.Context) {
+	requestPath := strings.TrimPrefix(c.Request.URL.Path, "/")
+	data, err := frontendDist.ReadFile("frontend/dist/" + requestPath)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	contentType := mime.TypeByExtension(filepath.Ext(requestPath))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	c.Writer.Header().Set("Content-Type", contentType)
+	http.ServeContent(c.Writer, c.Request, filepath.Base(requestPath), time.Time{}, bytes.NewReader(data))
 }
 
 func openBrowserWhenReady(url string) {

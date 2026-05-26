@@ -11,6 +11,8 @@
 
 # Generated output
 output/
+_local_release/
+_local_release_clean/
 
 # Frontend dependencies
 frontend/node_modules/

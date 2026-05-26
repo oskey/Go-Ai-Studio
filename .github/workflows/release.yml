@@ -13,8 +13,30 @@ env:
 
 jobs:
   build:
-    name: Build Windows release
+    name: Build ${{ matrix.goos }} ${{ matrix.goarch }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            ext: .exe
+          - goos: linux
+            goarch: amd64
+            ext: ""
+          - goos: linux
+            goarch: arm64
+            ext: ""
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+          - goos: darwin
+            goarch: arm64
+            ext: ""
 
     steps:
       - name: Checkout
@@ -57,19 +79,24 @@ jobs:
       - name: Build executable
         run: |
           mkdir -p dist
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/Go-Ai-Studio.exe .
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/Go-Ai-Studio${{ matrix.ext }}" .
 
       - name: Package release
         run: |
-          mkdir -p release/Go-Ai-Studio
-          cp dist/Go-Ai-Studio.exe release/Go-Ai-Studio/
-          cp -r workflows release/Go-Ai-Studio/
-          cd release
-          zip -r "Go-Ai-Studio-v${{ steps.version.outputs.version }}-windows-amd64.zip" Go-Ai-Studio
+          PACKAGE="Go-Ai-Studio-v${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "release/${PACKAGE}"
+          cp "dist/Go-Ai-Studio${{ matrix.ext }}" "release/${PACKAGE}/"
+          cp -r workflows "release/${PACKAGE}/"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            python3 -c "import shutil; shutil.make_archive('release/${PACKAGE}', 'zip', 'release', '${PACKAGE}')"
+          else
+            python3 -c "import shutil; shutil.make_archive('release/${PACKAGE}', 'gztar', 'release', '${PACKAGE}')"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Go-Ai-Studio v${{ steps.version.outputs.version }}
-          files: release/Go-Ai-Studio-v${{ steps.version.outputs.version }}-windows-amd64.zip
+          files: |
+            release/Go-Ai-Studio-v${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.*
           generate_release_notes: true
