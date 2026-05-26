@@ -1,0 +1,55 @@
+{
+  "22": {
+    "inputs": {
+      "model_repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "download_source": "ModelScope",
+      "precision": "bf16",
+      "attn_mode": "flash_attention_2",
+      "auto_download": true
+    },
+    "class_type": "Qwen3TTSLoader",
+    "_meta": {
+      "title": "Qwen3-TTS Loader 🚀"
+    }
+  },
+  "26": {
+    "inputs": {
+      "filename_prefix": "audio/qwen3-tts",
+      "audioUI": "",
+      "audio": [
+        "41",
+        0
+      ]
+    },
+    "class_type": "SaveAudio",
+    "_meta": {
+      "title": "保存音频"
+    }
+  },
+  "41": {
+    "inputs": {
+      "text": "其实我真的有发现，我是一个特别善于观察别人情绪的人。\n",
+      "speaker": "Vivian (Chinese - Bright, Sharp, Young Female)",
+      "language": "Auto",
+      "output_mode": "Concatenate (Merge)",
+      "seed": 1105334509258910,
+      "instruct": "开心",
+      "max_new_tokens": 1024,
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 50,
+      "repetition_penalty": 1.05,
+      "subtalker_temperature": 0.9,
+      "subtalker_top_p": 1,
+      "subtalker_top_k": 50,
+      "model_obj": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSCustomVoice",
+    "_meta": {
+      "title": "Qwen3-TTS Custom Voice 🎭"
+    }
+  }
+}

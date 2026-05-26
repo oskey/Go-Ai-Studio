@@ -1,0 +1,105 @@
+{
+  "6": {
+    "inputs": {
+      "audio": "开篇配音.mp3",
+      "audioUI": "/api/view?filename=%E5%BC%80%E7%AF%87%E9%85%8D%E9%9F%B3.mp3&type=input&subfolder=&rand=0.3111449884188443"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "加载音频"
+    }
+  },
+  "8": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI",
+      "audioUI": "/api/view?filename=ComfyUI_00176_.flac&type=output&subfolder=audio&rand=0.16347807173968676",
+      "audio": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "SaveAudio",
+    "_meta": {
+      "title": "保存音频"
+    }
+  },
+  "33": {
+    "inputs": {
+      "model_repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "download_source": "ModelScope",
+      "precision": "bf16",
+      "attn_mode": "sdpa",
+      "auto_download": true
+    },
+    "class_type": "Qwen3TTSLoader",
+    "_meta": {
+      "title": "Qwen3-TTS Loader 🚀"
+    }
+  },
+  "35": {
+    "inputs": {
+      "x_vector_only": false,
+      "ref_text": [
+        "40",
+        0
+      ],
+      "model_obj": [
+        "33",
+        0
+      ],
+      "ref_audio": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSVoiceClonePrompt",
+    "_meta": {
+      "title": "Qwen3-TTS Clone Prompt 🧠"
+    }
+  },
+  "39": {
+    "inputs": {
+      "target_text": "寒涧幽林隐异光，血鳞微颤诉沧桑，无心一救承天意，暗引沉城劫一场！",
+      "target_language": "Chinese",
+      "output_mode": "Concatenate (Merge)",
+      "seed": 325563485597017,
+      "ref_text": "",
+      "instruct": "",
+      "enable_x_vector_instant": false,
+      "max_new_tokens": 2048,
+      "temperature": 0.9,
+      "top_p": 1,
+      "top_k": 50,
+      "repetition_penalty": 1.05,
+      "subtalker_temperature": 0.9,
+      "subtalker_top_p": 1,
+      "subtalker_top_k": 50,
+      "model_obj": [
+        "33",
+        0
+      ],
+      "voice_clone_prompt": [
+        "35",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSVoiceClone",
+    "_meta": {
+      "title": "Qwen3-TTS Voice Clone 👥"
+    }
+  },
+  "40": {
+    "inputs": {
+      "model_id": "iic/SenseVoiceSmall",
+      "language": "auto",
+      "audio": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSSenseVoiceASR",
+    "_meta": {
+      "title": "Qwen3-TTS SenseVoice ASR 🗣️"
+    }
+  }
+}

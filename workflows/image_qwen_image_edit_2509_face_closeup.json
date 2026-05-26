@@ -1,0 +1,239 @@
+{
+  "25": {
+    "inputs": {
+      "image": "character_input.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Character Image"
+    }
+  },
+  "31": {
+    "inputs": {
+      "filename_prefix": "ComfyUI-close_up",
+      "images": [
+        "65:33:19",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Close up"
+    }
+  },
+  "66": {
+    "inputs": {
+      "value": "Turn the camera to a tight close-up of the face only."
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Prompt Close up"
+    }
+  },
+  "48:9": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "48:10": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "48:12": {
+    "inputs": {
+      "unet_name": "qwen_image_edit_2511_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "48:20": {
+    "inputs": {
+      "lora_name": "qwen-image-edit-2511-multiple-angles-lora.safetensors",
+      "strength_model": 1,
+      "model": [
+        "48:26",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
+    }
+  },
+  "48:26": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "48:12",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
+    }
+  },
+  "65:33:8": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "65:33:11",
+        0
+      ]
+    },
+    "class_type": "CFGNorm",
+    "_meta": {
+      "title": "CFG归一化"
+    }
+  },
+  "65:33:11": {
+    "inputs": {
+      "shift": 3.1,
+      "model": [
+        "48:20",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "采样算法（AuraFlow）"
+    }
+  },
+  "65:33:13": {
+    "inputs": {
+      "pixels": [
+        "65:33:28",
+        0
+      ],
+      "vae": [
+        "48:9",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE编码"
+    }
+  },
+  "65:33:14": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "48:10",
+        0
+      ],
+      "vae": [
+        "48:9",
+        0
+      ],
+      "image1": [
+        "65:33:28",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "文本编码（QwenImageEditPlus）"
+    }
+  },
+  "65:33:17": {
+    "inputs": {
+      "prompt": [
+        "66",
+        0
+      ],
+      "clip": [
+        "48:10",
+        0
+      ],
+      "vae": [
+        "48:9",
+        0
+      ],
+      "image1": [
+        "65:33:28",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "文本编码（QwenImageEditPlus）"
+    }
+  },
+  "65:33:19": {
+    "inputs": {
+      "samples": [
+        "65:33:21",
+        0
+      ],
+      "vae": [
+        "48:9",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "65:33:21": {
+    "inputs": {
+      "seed": 1106429432136498,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "65:33:8",
+        0
+      ],
+      "positive": [
+        "65:33:17",
+        0
+      ],
+      "negative": [
+        "65:33:14",
+        0
+      ],
+      "latent_image": [
+        "65:33:13",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "65:33:28": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "25",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "缩放图像（像素）"
+    }
+  }
+}

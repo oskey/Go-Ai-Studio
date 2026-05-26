@@ -1,0 +1,91 @@
+{
+  "3": {
+    "inputs": {
+      "model_path": "LongCat-AudioDiT-3.5B",
+      "text": "滚滚滚滚，天雷滚滚，让你钓鱼不空军！不空军！空军！军！",
+      "prompt_text": "李大人，你已被邪物蛊惑，定海神珠乃镇压之物，落入你手天下必遭浩劫，我愿以身赎罪，绝不交出！",
+      "steps": 25,
+      "guidance_strength": 4,
+      "guidance_method": "apg",
+      "device": "auto",
+      "dtype": "auto",
+      "attention": "auto",
+      "seed": 264590,
+      "keep_model_loaded": true,
+      "prompt_audio": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "LongCatVoiceCloneTTS",
+    "_meta": {
+      "title": "LongCat AudioDiT Voice Clone TTS"
+    }
+  },
+  "4": {
+    "inputs": {
+      "audio": "青龙声音.mp3",
+      "audioUI": "/api/view?filename=%E9%9D%92%E9%BE%99%E5%A3%B0%E9%9F%B3.mp3&type=input&subfolder=&rand=0.8235856737977293"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "加载音频"
+    }
+  },
+  "5": {
+    "inputs": {
+      "lufs": -23,
+      "audio": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "NormalizeAudioLoudness",
+    "_meta": {
+      "title": "Normalize Audio Loudness"
+    }
+  },
+  "7": {
+    "inputs": {
+      "model_size": "large-v3",
+      "download_missing": false
+    },
+    "class_type": "Load Whisper (mtb)",
+    "_meta": {
+      "title": "Load Whisper (mtb)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "language": "auto",
+      "return_timestamps": false,
+      "pipeline": [
+        "7",
+        0
+      ],
+      "audio": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "Audio To Text (mtb)",
+    "_meta": {
+      "title": "Audio To Text (mtb)"
+    }
+  },
+  "9": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI",
+      "quality": "V0",
+      "audioUI": "/api/view?filename=ComfyUI_00016_.mp3&type=output&subfolder=audio&rand=0.7832104407190672",
+      "audio": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "SaveAudioMP3",
+    "_meta": {
+      "title": "保存音频 (MP3)"
+    }
+  }
+}

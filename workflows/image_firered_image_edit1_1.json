@@ -1,0 +1,338 @@
+{
+  "9": {
+    "inputs": {
+      "filename_prefix": "Firered_image_edit_1.1",
+      "images": [
+        "167:126",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "143": {
+    "inputs": {
+      "image": "3.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "172": {
+    "inputs": {
+      "image": "nv2.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "167:120": {
+    "inputs": {
+      "shift": 3.1,
+      "model": [
+        "167:154",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "采样算法（AuraFlow）"
+    }
+  },
+  "167:154": {
+    "inputs": {
+      "switch": [
+        "167:153",
+        0
+      ],
+      "on_false": [
+        "167:128",
+        0
+      ],
+      "on_true": [
+        "167:151",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "切换"
+    }
+  },
+  "167:155": {
+    "inputs": {
+      "value": 40
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Steps"
+    }
+  },
+  "167:123": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "167:120",
+        0
+      ]
+    },
+    "class_type": "CFGNorm",
+    "_meta": {
+      "title": "CFG归一化"
+    }
+  },
+  "167:164": {
+    "inputs": {
+      "switch": [
+        "167:153",
+        0
+      ],
+      "on_false": [
+        "167:162",
+        0
+      ],
+      "on_true": [
+        "167:163",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "切换"
+    }
+  },
+  "167:156": {
+    "inputs": {
+      "value": 8
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "LoRA-Steps"
+    }
+  },
+  "167:162": {
+    "inputs": {
+      "value": 4
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "CFG"
+    }
+  },
+  "167:163": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "LoRA-CFG"
+    }
+  },
+  "167:157": {
+    "inputs": {
+      "switch": [
+        "167:153",
+        0
+      ],
+      "on_false": [
+        "167:155",
+        0
+      ],
+      "on_true": [
+        "167:156",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "切换"
+    }
+  },
+  "167:116": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "167:115": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "167:151": {
+    "inputs": {
+      "lora_name": "FireRed-Image-Edit-1.0-Lightning-8steps-v1.1.safetensors",
+      "strength_model": 1,
+      "model": [
+        "167:128",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
+    }
+  },
+  "167:128": {
+    "inputs": {
+      "unet_name": "FireRed-Image-Edit-1.1-transformer.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "167:125": {
+    "inputs": {
+      "pixels": [
+        "167:147",
+        0
+      ],
+      "vae": [
+        "167:116",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE编码"
+    }
+  },
+  "167:153": {
+    "inputs": {
+      "value": true
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Enable Lightning LoRA?"
+    }
+  },
+  "167:130": {
+    "inputs": {
+      "seed": 264590,
+      "steps": [
+        "167:157",
+        0
+      ],
+      "cfg": [
+        "167:164",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "167:123",
+        0
+      ],
+      "positive": [
+        "167:118",
+        0
+      ],
+      "negative": [
+        "167:117",
+        0
+      ],
+      "latent_image": [
+        "167:125",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "167:126": {
+    "inputs": {
+      "samples": [
+        "167:130",
+        0
+      ],
+      "vae": [
+        "167:116",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "167:147": {
+    "inputs": {
+      "image": [
+        "143",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "图像缩放为FluxKontext"
+    }
+  },
+  "167:118": {
+    "inputs": {
+      "prompt": "indoor realistic environment, keep the original scene unchanged,\n\nadd ONE additional person into the scene,\nthe added person must be a new individual, not replacing or duplicating existing people,\n\nthe added person is positioned off-center, not in the middle,\ndoes not block important objects or main subjects,\n\nonly upper body visible (waist-up framing),\ncropped at waist, no legs, no full body,\n\nperson facing front or slightly front-facing,\nnatural relaxed posture, lightly interacting with environment,\nnot posing,\n\nlighting matches indoor sources (warm light, ceiling light),\nconsistent shadows and skin tones,\n\ncorrect perspective with furniture and space,\nnatural scale,\n\nthe added person is part of the environment, not the main subject,\nclean blending, no cutout artifacts,\nhigh realism",
+      "clip": [
+        "167:115",
+        0
+      ],
+      "vae": [
+        "167:116",
+        0
+      ],
+      "image1": [
+        "167:147",
+        0
+      ],
+      "image2": [
+        "172",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus (Positive)"
+    }
+  },
+  "167:117": {
+    "inputs": {
+      "prompt": "duplicate people, cloned character,\nperson in center, main subject,\nfull body, legs,\nbad lighting mismatch,\ncutout effect, sticker look,\noverly sharp face, beauty filter",
+      "clip": [
+        "167:115",
+        0
+      ],
+      "vae": [
+        "167:116",
+        0
+      ],
+      "image1": [
+        "167:147",
+        0
+      ],
+      "image2": [
+        "172",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "文本编码（QwenImageEditPlus）"
+    }
+  }
+}

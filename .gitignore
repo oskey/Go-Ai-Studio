@@ -1,0 +1,16 @@
+# Database files
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+
+# Markdown documents
+*.md
+
+# Generated output
+output/
+
+# Frontend dependencies
+frontend/node_modules/

@@ -1,0 +1,41 @@
+{
+  "6": {
+    "inputs": {
+      "audio": "开篇配音.mp3",
+      "audioUI": "/api/view?filename=%E5%BC%80%E7%AF%87%E9%85%8D%E9%9F%B3.mp3&type=input&subfolder=&rand=0.8320067831933645"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "加载音频"
+    }
+  },
+  "40": {
+    "inputs": {
+      "model_id": "iic/SenseVoiceSmall",
+      "language": "auto",
+      "audio": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSSenseVoiceASR",
+    "_meta": {
+      "title": "Qwen3-TTS SenseVoice ASR 🗣️"
+    }
+  },
+  "42": {
+    "inputs": {
+      "preview_markdown": "先帝创业未伴而中道崩殂，今天下三分，益州疲弊，此成危急存亡之秋也。",
+      "preview_text": "先帝创业未伴而中道崩殂，今天下三分，益州疲弊，此成危急存亡之秋也。",
+      "previewMode": true,
+      "source": [
+        "40",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "预览任意"
+    }
+  }
+}

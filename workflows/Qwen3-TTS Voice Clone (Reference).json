@@ -1,0 +1,105 @@
+{
+  "6": {
+    "inputs": {
+      "audio": "character_3.mp3",
+      "audioUI": "/api/view?filename=character_3.mp3&type=input&subfolder=&rand=0.6509338839761859"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "加载音频"
+    }
+  },
+  "8": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI",
+      "audioUI": "/api/view?filename=ComfyUI_00234_.flac&type=output&subfolder=audio&rand=0.5073936929600324",
+      "audio": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "SaveAudio",
+    "_meta": {
+      "title": "保存音频"
+    }
+  },
+  "33": {
+    "inputs": {
+      "model_repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "download_source": "ModelScope",
+      "precision": "bf16",
+      "attn_mode": "sdpa",
+      "auto_download": true
+    },
+    "class_type": "Qwen3TTSLoader",
+    "_meta": {
+      "title": "Qwen3-TTS Loader 🚀"
+    }
+  },
+  "35": {
+    "inputs": {
+      "x_vector_only": true,
+      "ref_text": [
+        "40",
+        0
+      ],
+      "model_obj": [
+        "33",
+        0
+      ],
+      "ref_audio": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSVoiceClonePrompt",
+    "_meta": {
+      "title": "Qwen3-TTS Clone Prompt 🧠"
+    }
+  },
+  "39": {
+    "inputs": {
+      "target_text": "县城会塌陷？",
+      "target_language": "Chinese",
+      "output_mode": "Concatenate (Merge)",
+      "seed": 264590,
+      "ref_text": "",
+      "instruct": "语气慌张害怕，声音微微颤抖，语速急促",
+      "enable_x_vector_instant": false,
+      "max_new_tokens": 2048,
+      "temperature": 0.5,
+      "top_p": 0.6,
+      "top_k": 50,
+      "repetition_penalty": 1.05,
+      "subtalker_temperature": 0.9,
+      "subtalker_top_p": 1,
+      "subtalker_top_k": 50,
+      "model_obj": [
+        "33",
+        0
+      ],
+      "voice_clone_prompt": [
+        "35",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSVoiceClone",
+    "_meta": {
+      "title": "Qwen3-TTS Voice Clone 👥"
+    }
+  },
+  "40": {
+    "inputs": {
+      "model_id": "iic/SenseVoiceSmall",
+      "language": "auto",
+      "audio": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSSenseVoiceASR",
+    "_meta": {
+      "title": "Qwen3-TTS SenseVoice ASR 🗣️"
+    }
+  }
+}
