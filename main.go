@@ -412,7 +412,6 @@ func main() {
 }
 
 func registerFrontendRoutes(r *gin.Engine) {
-	distFS := http.FS(frontendDist)
 	staticFS, err := fs.Sub(frontendDist, "frontend/dist")
 	if err != nil {
 		log.Printf("前端静态资源不可用: %v", err)
@@ -430,7 +429,12 @@ func registerFrontendRoutes(r *gin.Engine) {
 			return
 		}
 
-		c.FileFromFS("frontend/dist/index.html", distFS)
+		indexHTML, err := frontendDist.ReadFile("frontend/dist/index.html")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "frontend index not found"})
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	})
 }
 
