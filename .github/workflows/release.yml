@@ -86,6 +86,7 @@ jobs:
           PACKAGE="Go-Ai-Studio-v${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
           mkdir -p "release/${PACKAGE}"
           cp "dist/Go-Ai-Studio${{ matrix.ext }}" "release/${PACKAGE}/"
+          cp version.txt README.md "release/${PACKAGE}/"
           cp -r workflows "release/${PACKAGE}/"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             python3 -c "import shutil; shutil.make_archive('release/${PACKAGE}', 'zip', 'release', '${PACKAGE}')"

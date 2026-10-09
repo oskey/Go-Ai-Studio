@@ -56,6 +56,7 @@ export interface LLMUsageSummary {
 export interface Workflow {
   workflow_name: string;
   type: string;
+  file_name?: string;
 }
 
 export interface SystemLog {

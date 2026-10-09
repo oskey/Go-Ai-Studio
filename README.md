@@ -198,3 +198,30 @@ https://github.com/oskey/Go-Ai-Studio/releases
 ## License
 
 本项目基于仓库 License 发布。
+
+---
+
+## 贡献者致谢与 H3 工作流注意事项
+
+感谢 [@happymy](https://github.com/happymy) 通过 [PR #5](https://github.com/oskey/Go-Ai-Studio/pull/5) 贡献 MiniMax H3 短视频抽帧、视频多段拼接、LM Studio 兼容增强及相关修复。
+
+本次 H3 工作流的优化参考自贡献者的项目：[happymy/MinimaxH3-7900xtx](https://github.com/happymy/MinimaxH3-7900xtx)。节点安装、模型准备和硬件调优请结合该项目说明与自己的 ComfyUI 环境确认。
+
+### 三个 H3 工作流
+
+| 工作流文件 | 用途 |
+| --- | --- |
+| `workflows/minimax_h3_t2v-gguf-api.json` | 文生短视频与图片抽帧 |
+| `workflows/minimax_h3_ref2v-gguf-api.json` | 参考图生成视频与分段衔接 |
+| `workflows/minimax_h3_i2v-gguf-api.json` | 图生视频 |
+
+**以上三个 H3 工作流均为 GGUF 量化适配版，使用前请注意：**
+
+- 贡献者基于 **32GB RAM + AMD Radeon RX 7900 XTX（ROCm）** 环境调优；这不是所有设备的最低配置要求，也不代表相同参数适用于所有设备。
+- 使用 Q4_K_M 量化模型，包括工作流引用的 MiniMax H3 模型与 `qwen3-vl-4b-heretic-Q4_K_M.gguf`；必须准备对应模型文件。
+- 需要安装 [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF)，以及各工作流引用的其他自定义节点、VAE 和投影模型。
+- **NVIDIA 用户及其他内存/显存配置用户，应按本机环境调整模型、加载节点和内存参数。** GGUF 并不意味着仅支持 AMD；如果改用未量化模型，需要同步替换对应加载节点与配置，不能只修改文件后缀。
+- H3 图片抽帧与多段视频拼接还需要可用的 FFmpeg；Windows 用户建议在系统设置中填写 `ffmpeg.exe` 的绝对路径。
+- 系统设置中选择这些工作流，或启用 H3 短视频抽帧时，会显示兼容性提醒。发布包不包含模型权重或 ComfyUI 插件。
+
+同一 PR 新增的 `workflows/Krea2_t2i_20260818_API.json` 也为 GGUF 量化适配版，引用 `Krea2_turbo_uncensored_edit_v1.1-Q4_K_M.gguf` 等模型，同样需要核对上述插件、模型与硬件适配条件。

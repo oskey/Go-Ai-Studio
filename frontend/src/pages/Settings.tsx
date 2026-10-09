@@ -4,7 +4,7 @@ import type { Workflow } from "@/types";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Combobox } from "@/components/ui/combobox";
-import { Save, CheckCircle2, XCircle, ExternalLink, FolderSearch } from "lucide-react";
+import { Save, CheckCircle2, XCircle, ExternalLink, FolderSearch, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
@@ -23,6 +23,36 @@ interface H3PromptPreset {
 }
 
 const CUSTOM_H3_PROMPT_ID = "custom";
+
+const GGUF_WORKFLOW_FILES = new Set([
+    "minimax_h3_t2v-gguf-api.json",
+    "minimax_h3_ref2v-gguf-api.json",
+    "minimax_h3_i2v-gguf-api.json",
+    "krea2_t2i_20260818_api.json",
+]);
+
+const isBundledGgufWorkflow = (workflows: Workflow[], selectedName: string) =>
+    workflows.some(w =>
+        w.workflow_name === selectedName &&
+        GGUF_WORKFLOW_FILES.has((w.file_name ?? "").toLowerCase())
+    );
+
+function GgufWorkflowNotice() {
+    return (
+        <div role="note" aria-label="GGUF 工作流注意事项" className="mt-2 flex gap-2 border-l-2 border-amber-500 pl-3 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <div className="min-w-0 space-y-1">
+                <p className="font-medium">GGUF 量化工作流注意事项</p>
+                <p>随附版本由 happymy 基于 32GB RAM + AMD Radeon RX 7900 XTX（ROCm）调优，使用 Q4_K_M 量化模型；需要安装 ComfyUI-GGUF、对应模型及工作流依赖的其他自定义节点。</p>
+                <p>NVIDIA 或其他内存/显存配置请按本机环境调整模型、加载节点和内存参数；改用未量化模型时，需要同步替换对应加载节点。H3 抽帧与视频拼接还需要可用的 FFmpeg。</p>
+                <a href="https://github.com/happymy/MinimaxH3-7900xtx" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline underline-offset-2">
+                    工作流优化与配置参考
+                    <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </a>
+            </div>
+        </div>
+    );
+}
 
 const normalizePromptText = (text: string) => (text ?? "").replace(/\r\n/g, "\n").trim();
 
@@ -385,6 +415,7 @@ export default function Settings() {
                         <p className="text-xs text-muted-foreground mt-1">
                             用于场景图与角色预览图。抽帧模式使用内置 minimax_h3_t2v 工作流生成约 0.1 秒短视频再抽帧作为图片；尺寸会等比缩放到 H3 上限内并对齐 16。
                         </p>
+                        {settings.image_generation_mode === "h3_video_frame" && <GgufWorkflowNotice />}
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium mb-2">H3 抽帧位置</label>
@@ -566,6 +597,7 @@ export default function Settings() {
                             )}
                         </div>
                          <p className="text-xs text-muted-foreground mt-1">解析自 workflows/ 目录</p>
+                         {settings.image_generation_mode !== "h3_video_frame" && isBundledGgufWorkflow(imageWorkflows, settings.default_image_model) && <GgufWorkflowNotice />}
                          {settings.image_generation_mode === "h3_video_frame" && (
                              <p className="text-xs text-amber-600 mt-1">
                                  注意：当前「图片生成方式」为 MiniMax H3 短视频抽帧，此选项不生效，场景图/角色图使用内置 minimax_h3_t2v/ref2v 工作流。
@@ -601,6 +633,7 @@ export default function Settings() {
                             )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">仅本地 ComfyUI / LTX 链路使用，解析自 workflows/ 目录。</p>
+                        {isBundledGgufWorkflow(videoWorkflows, settings.default_video_model) && <GgufWorkflowNotice />}
                     </div>
                 </div>
             </div>
