@@ -225,3 +225,9 @@ https://github.com/oskey/Go-Ai-Studio/releases
 - 系统设置中选择这些工作流，或启用 H3 短视频抽帧时，会显示兼容性提醒。发布包不包含模型权重或 ComfyUI 插件。
 
 同一 PR 新增的 `workflows/Krea2_t2i_20260818_API.json` 也为 GGUF 量化适配版，引用 `Krea2_turbo_uncensored_edit_v1.1-Q4_K_M.gguf` 等模型，同样需要核对上述插件、模型与硬件适配条件。
+
+---
+
+## 本次合并说明
+
+本次合并由 AI 协助整合，作者本人则贯彻了“能交给 AI，就少动一点手”的朴素原则。基础构建与界面检查已通过，实际出图和视频生成尚未进行人工测试。尝鲜途中如遇问题，可先下载 [v1.1.1](https://github.com/oskey/Go-Ai-Studio/releases/tag/v1.1.1) 使用，给作者一点补作业的时间。
