@@ -322,6 +322,8 @@ func UpdateScene(c *gin.Context) {
 	scene.Width = 0
 	scene.Height = 0
 	scene.Seed = 0
+	scene.RefImage = strings.TrimSpace(updateData.RefImage)
+	scene.UseRefImage = updateData.UseRefImage
 	scene.UpdatedAt = time.Now()
 
 	// Update associations
@@ -941,27 +943,44 @@ func triggerSceneImageGeneration(scene models.Scene) (string, error) {
 	}
 	width, height := getConfiguredSceneImageSize()
 	seed := getConfiguredGlobalSeed()
-	var setting models.SystemSettings
-	if err := db.DB.Where("key = ?", KeyDefaultImageModel).First(&setting).Error; err != nil {
-		return "", fmt.Errorf("default image workflow is not configured")
-	}
-	workflowName := strings.TrimSpace(setting.Value)
-	if workflowName == "" {
-		return "", fmt.Errorf("default image workflow is not configured")
-	}
+	h3VideoFrameMode := useH3VideoFrameMode()
 
-	// Find workflow file
-	files, _ := filepath.Glob(filepath.Join("workflows", "*.json"))
 	var targetFile string
-	for _, file := range files {
-		meta, err := workflow.ParseWorkflow(file)
-		if err == nil && meta.WorkflowName == workflowName {
-			targetFile = file
-			break
+	if h3VideoFrameMode {
+		var h3File string
+		var err error
+		if scene.UseRefImage && scene.RefImage != "" {
+			h3File, err = findH3Ref2VWorkflowFile()
+		} else {
+			h3File, err = findH3T2VWorkflowFile()
 		}
-	}
-	if targetFile == "" {
-		return "", fmt.Errorf("workflow file for '%s' not found", workflowName)
+		if err != nil {
+			return "", err
+		}
+		width, height = normalizeH3VideoFrameSize(width, height)
+		targetFile = h3File
+	} else {
+		var setting models.SystemSettings
+		if err := db.DB.Where("key = ?", KeyDefaultImageModel).First(&setting).Error; err != nil {
+			return "", fmt.Errorf("default image workflow is not configured")
+		}
+		workflowName := strings.TrimSpace(setting.Value)
+		if workflowName == "" {
+			return "", fmt.Errorf("default image workflow is not configured")
+		}
+
+		// Find workflow file
+		files, _ := filepath.Glob(filepath.Join("workflows", "*.json"))
+		for _, file := range files {
+			meta, err := workflow.ParseWorkflow(file)
+			if err == nil && meta.WorkflowName == workflowName {
+				targetFile = file
+				break
+			}
+		}
+		if targetFile == "" {
+			return "", fmt.Errorf("workflow file for '%s' not found", workflowName)
+		}
 	}
 	workflowLabel := workflowDisplayNameFromPath(targetFile)
 
@@ -1008,6 +1027,7 @@ func triggerSceneImageGeneration(scene models.Scene) (string, error) {
 		return "", err
 	}
 	finalImagePrompt := appendProjectStylePrompt(runtimeImagePrompt, project)
+	finalImagePrompt = appendH3VideoFrameStaticPrompt(finalImagePrompt)
 
 	setInput(meta.PositiveNodeID, meta.PositiveInputKey, finalImagePrompt)
 	if meta.NegativeNodeID != "" {
@@ -1018,6 +1038,62 @@ func triggerSceneImageGeneration(scene models.Scene) (string, error) {
 	setInput(meta.SeedNodeID, meta.SeedInputKey, seed)
 	setInput(meta.WidthNodeID, meta.WidthInputKey, width)
 	setInput(meta.HeightNodeID, meta.HeightInputKey, height)
+	if h3VideoFrameMode {
+		injectH3Duration(wfJSON, h3VideoFrameDurationSeconds)
+	}
+
+	// Inject Scene Reference Image if enabled (防止场景/背景漂移,与角色参考图 characters.go 同构)
+	if scene.UseRefImage && scene.RefImage != "" {
+		cleanRefPath := strings.TrimPrefix(scene.RefImage, "/")
+		absRefPath, _ := filepath.Abs(cleanRefPath)
+
+		var imageNodeID string
+		for id, node := range wfJSON {
+			if nodeMap, ok := node.(map[string]interface{}); ok {
+				if classType, ok := nodeMap["class_type"].(string); ok {
+					if classType == "LoadImage" {
+						imageNodeID = id
+						break // Assume first LoadImage is the ref image
+					}
+				}
+			}
+		}
+
+		uploadedName, err := UploadToComfyUIInput(absRefPath)
+		if err != nil {
+			Log(LogLevelError, "ComfyUI Upload Failed", fmt.Sprintf("Failed to upload scene ref image %s: %v", absRefPath, err))
+			return "", fmt.Errorf("failed to upload scene reference image to comfyui input: %v", err)
+		}
+		if imageNodeID != "" {
+			setInput(imageNodeID, "image", uploadedName)
+		}
+	}
+
+	// ref2v 模板自带官方示例素材，场景图仅使用参考图，提交前剥掉 audio/video 参考，
+	// 避免在 ComfyUI 校验时缺文件报错。随后把机制 A 引用的角色参考图注入 ref_images。
+	if h3VideoFrameMode && filepath.Base(targetFile) == h3Ref2VWorkflowFileName {
+		stripH3Ref2VExampleAssets(wfJSON)
+		// 角色资产与 buildReferenceCharactersIndexBlock 同序，保证 @图N 编号与槽位严格对齐；
+		// 场景参考图固定占 ref_image_0，角色从 ref_image_1 起（@图N → <Picture N+1>）。
+		refChars, err := loadReferenceCharacterAssets(scene.ProjectID)
+		if err != nil {
+			Log(LogLevelError, "Load H3 Ref Characters Failed", fmt.Sprintf("project=%d err=%v", scene.ProjectID, err))
+		} else {
+			bridged, err := injectH3Ref2VCharacterRefs(wfJSON, finalImagePrompt, refChars, UploadToComfyUIInput)
+			if err != nil {
+				return "", err
+			}
+			if bridged != finalImagePrompt {
+				finalImagePrompt = bridged
+				setInput(meta.PositiveNodeID, meta.PositiveInputKey, finalImagePrompt)
+			}
+		}
+	} else if h3VideoFrameMode && h3ReferenceTagPattern.MatchString(finalImagePrompt) {
+		// ponytail: t2v 工作流无 ref_images 通道，机制 A 的角色参考图无法注入，
+		// @图N 保持原文文本，仅告警提醒用户。# 若后续 H3 支持 t2v 参考通道再注入
+		Log(LogLevelWarn, "H3 Ref Tags Ignored", "t2v workflow has no ref_images channel; @图N tags kept as text")
+	}
+
 	logComfyWorkflowPayload("Scene ComfyUI Payload", workflowLabel, wfJSON)
 
 	// Queue
@@ -1058,19 +1134,8 @@ func waitForSceneImageOutput(promptID string, sceneID uint, projectCode string) 
 				if !ok {
 					continue
 				}
-				images, ok := imageOutputs["images"].([]interface{})
-				if !ok || len(images) == 0 {
-					continue
-				}
-				imgData, ok := images[0].(map[string]interface{})
+				fileData, isVideo, ok := resolveImageOrVideoOutput(imageOutputs)
 				if !ok {
-					continue
-				}
-
-				filename, _ := imgData["filename"].(string)
-				subfolder, _ := imgData["subfolder"].(string)
-				typeStr, _ := imgData["type"].(string)
-				if filename == "" {
 					continue
 				}
 
@@ -1079,6 +1144,17 @@ func waitForSceneImageOutput(promptID string, sceneID uint, projectCode string) 
 					return "", err
 				}
 				saveFilename := fmt.Sprintf("scene_%d_%d.png", sceneID, time.Now().Unix())
+				if isVideo {
+					webPath, err := downloadHistoryVideoAndExtractFrame(fileData, saveDir, saveFilename)
+					if err != nil {
+						return "", err
+					}
+					return webPath, nil
+				}
+
+				filename, _ := fileData["filename"].(string)
+				subfolder, _ := fileData["subfolder"].(string)
+				typeStr, _ := fileData["type"].(string)
 				savePath := filepath.Join(saveDir, saveFilename)
 				if err := DownloadComfyImage(filename, subfolder, typeStr, savePath); err != nil {
 					return "", err

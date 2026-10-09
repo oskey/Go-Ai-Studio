@@ -69,6 +69,17 @@ func queueConfiguredVideoRender(videoID uint, projectID uint) error {
 	case VideoGenerationProviderJimeng:
 		return queueJimengVideoRender(videoID, projectID)
 	default:
+		workflowFamily, err := resolveSelectedVideoWorkflowFamily()
+		if err != nil {
+			return err
+		}
+		if strings.EqualFold(strings.TrimSpace(workflowFamily), "r2v") {
+			// H3（r2v 家族）：按阈值切段，逐段渲染（首尾帧衔接）并 merge 合并。
+			if _, err := ensureStoredVideoSegmentPlan(videoID, projectID); err != nil {
+				return err
+			}
+			return renderVideoSegments(videoID, projectID, "", 1, nil)
+		}
 		return queueLTXVideoRender(videoID, projectID)
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"kt-ai-studio/internal/db"
 	"kt-ai-studio/internal/models"
@@ -111,11 +113,14 @@ type lightweightStoryPromptContext struct {
 	SelectedTagRules           string
 	ExistingCharactersJSON     string
 	PreviousEpisodeContextJSON string
+	NarrativeNodesJSON         string
+	NarrativeNodeCount         int
 	Metrics                    lightweightStoryPromptMetrics
 	SceneImageWidth            int
 	SceneImageHeight           int
 	SceneImageFrameType        string
 	FixedVideoFPS              int
+	ReferenceCharactersJSON    string
 }
 
 func emptyEpisodeMemory() lightweightStoryEpisodeMemory {
@@ -209,6 +214,11 @@ func buildLightweightStoryPromptContext(project models.Project, req models.AutoG
 		return lightweightStoryPromptContext{}, err
 	}
 
+	referenceCharactersJSON, err := buildReferenceCharactersIndexBlock(project.ID)
+	if err != nil {
+		return lightweightStoryPromptContext{}, err
+	}
+
 	return lightweightStoryPromptContext{
 		Project:                    project,
 		Request:                    req,
@@ -220,7 +230,41 @@ func buildLightweightStoryPromptContext(project models.Project, req models.AutoG
 		SceneImageHeight:           sceneImageHeight,
 		SceneImageFrameType:        describeFrameType(sceneImageWidth, sceneImageHeight),
 		FixedVideoFPS:              defaultSegmentFPS,
+		ReferenceCharactersJSON:    referenceCharactersJSON,
 	}, nil
+}
+
+// loadReferenceCharacterAssets 返回项目内带参考图资产的角色，按 id 升序、跳过空名。
+// 它是机制 A「@图N」索引（buildReferenceCharactersIndexBlock）与 H3 ref2v 角色参考图注入
+// 的共享查询源，保证索引编号与注入槽位一一对应，避免两边排序规则漂移。
+func loadReferenceCharacterAssets(projectID uint) ([]models.Character, error) {
+	var records []models.Character
+	if err := db.DB.Where("project_id = ? AND ref_image <> ''", projectID).Order("id asc").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	assets := make([]models.Character, 0, len(records))
+	for _, record := range records {
+		if strings.TrimSpace(record.Name) == "" {
+			continue
+		}
+		assets = append(assets, record)
+	}
+	return assets, nil
+}
+
+func buildReferenceCharactersIndexBlock(projectID uint) (string, error) {
+	records, err := loadReferenceCharacterAssets(projectID)
+	if err != nil {
+		return "", err
+	}
+	if len(records) == 0 {
+		return "", nil
+	}
+	lines := make([]string, 0, len(records))
+	for n, record := range records {
+		lines = append(lines, fmt.Sprintf("@图%d=%s", n+1, record.Name))
+	}
+	return "\n\n【参考图角色资产索引】\n" + strings.Join(lines, "\n") + "\n", nil
 }
 
 func buildSceneSegmentationGuidance(plot string, allowCharacterSpeech bool) string {
@@ -725,17 +769,22 @@ func buildLightweightStoryPromptsLegacy(project models.Project, req models.AutoG
 	return systemPrompt, userPrompt, nil
 }
 
-func buildLightweightStoryPrompts(project models.Project, req models.AutoGenerateRequest, existingCharacters []lightweightStoryCharacter, previousEpisodeContext lightweightStoryEpisodeMemory) (string, string, error) {
+func buildLightweightStoryPrompts(project models.Project, req models.AutoGenerateRequest, existingCharacters []lightweightStoryCharacter, previousEpisodeContext lightweightStoryEpisodeMemory, narrativeNodesJSON string, narrativeNodeCount int) (string, string, error) {
 	ctx, err := buildLightweightStoryPromptContext(project, req, existingCharacters, previousEpisodeContext)
 	if err != nil {
 		return "", "", err
 	}
+	ctx.NarrativeNodesJSON = narrativeNodesJSON
+	ctx.NarrativeNodeCount = narrativeNodeCount
 	switch normalizeAutoGenerateGenerationMode(req.GenerationMode, req.AllowCharacterSpeech) {
 	case AutoGenerateModeStoryboard:
 		systemPrompt, userPrompt := buildStoryboardLightweightStoryPrompts(ctx)
 		return systemPrompt, userPrompt, nil
 	case AutoGenerateModeHighQuality:
 		systemPrompt, userPrompt := buildHighQualityLightweightStoryPrompts(ctx)
+		return systemPrompt, userPrompt, nil
+	case AutoGenerateModeH3Short:
+		systemPrompt, userPrompt := buildH3ShortLightweightStoryPrompts(ctx)
 		return systemPrompt, userPrompt, nil
 	default:
 		systemPrompt, userPrompt := buildStandardLightweightStoryPrompts(ctx)
@@ -785,7 +834,73 @@ func requestLightweightStoryOnce(provider models.LLMProvider, systemPrompt strin
 		},
 	}
 
+	checkLightweightStoryContextBudget(provider, systemPrompt, userPrompt, req.MaxTokens, taskID)
+
 	return requestLLMContentStreaming(provider, req, 15*time.Minute, taskID, "轻量剧情一次性生成")
+}
+
+// estimatePromptTokens heuristically estimates token usage of mostly-Chinese prompt
+// text. CJK runes average ~0.75 token each under Qwen tokenizers, ASCII ~1 token
+// per 4 chars; a 1.05 safety factor absorbs punctuation/whitespace variance.
+// ponytail: heuristic only; swap for a real Qwen tokenizer if estimates prove off.
+func estimatePromptTokens(parts ...string) int {
+	var cjk, ascii int
+	for _, s := range parts {
+		for _, r := range s {
+			if unicode.Is(unicode.Han, r) {
+				cjk++
+			} else if r < utf8.RuneSelf {
+				ascii++
+			} else {
+				cjk++
+			}
+		}
+	}
+	return int(float64(cjk)*0.75 + float64(ascii)/4*1.05)
+}
+
+// checkLightweightStoryContextBudget warns (never aborts) before a full-episode
+// generation when estimated input + effective output budget approaches the
+// provider context window, so an overflow/truncation isn't discovered after a
+// long wait. Reserved headroom covers Qwen3 reasoning_content and JSON framing.
+func checkLightweightStoryContextBudget(provider models.LLMProvider, systemPrompt string, userPrompt string, maxTokens int, taskID string) {
+	estInput := estimatePromptTokens(systemPrompt, userPrompt)
+	effMaxTokens := maxTokens
+	if effMaxTokens == 0 {
+		effMaxTokens = provider.LMStudioMaxTokens
+	}
+	if effMaxTokens == 0 {
+		effMaxTokens = 8192
+	}
+	contextWindow := provider.LMStudioContextWindow
+	if contextWindow == 0 {
+		contextWindow = 40960
+	}
+	const reasoningReserve = 2000
+	expectedTotal := estInput + effMaxTokens + reasoningReserve
+	headroom := contextWindow - expectedTotal
+
+	Log(
+		LogLevelInfo,
+		llmLogMessage("LLM 上下文占用估算(轻量剧情一次性生成)", provider),
+		fmt.Sprintf("est_input=%d expected_total=%d(+%d reserve) context_window=%d headroom=%d",
+			estInput, expectedTotal, reasoningReserve, contextWindow, headroom),
+	)
+
+	if headroom < 0 {
+		task.GlobalTaskManager.UpdateTaskProgress(taskID, 38, fmt.Sprintf("预计超出上下文窗口约 %d token，请缩短剧本输入或调大上下文窗口", -headroom))
+		Log(
+			LogLevelError,
+			llmLogMessage("LLM 上下文预算超限警告(轻量剧情一次性生成)", provider),
+			fmt.Sprintf("estimated %d tokens vs context window %d, overflow by %d. Shorten the script input or raise lm_studio_context_window.", expectedTotal, contextWindow, -headroom),
+		)
+	} else if headroom < 5000 {
+		Log(
+			LogLevelWarn,
+			llmLogMessage("LLM 上下文接近上限(轻量剧情一次性生成)", provider),
+			fmt.Sprintf("estimated %d tokens vs context window %d, headroom only %d. Consider shortening script input.", expectedTotal, contextWindow, headroom),
+		)
+	}
 }
 
 type lightweightStoryPartialContext struct {
@@ -1537,13 +1652,16 @@ func parseFlowingVideoPrompt(prompt string) (*flowingVideoPrompt, error) {
 	}, nil
 }
 
-func validateLightweightStoryResponse(payload *lightweightStoryResponse, existingCharacters []lightweightStoryCharacter, generationMode string) error {
+func validateLightweightStoryResponse(payload *lightweightStoryResponse, existingCharacters []lightweightStoryCharacter, generationMode string, minSceneCount int) error {
 	_ = normalizeAutoGenerateGenerationMode(generationMode, false)
 	if payload == nil {
 		return fmt.Errorf("story payload is nil")
 	}
 	if len(payload.Scenes) == 0 {
 		return fmt.Errorf("scenes array must not be empty")
+	}
+	if minSceneCount > 0 && len(payload.Scenes) < minSceneCount {
+		return fmt.Errorf("scenes count %d is less than required narrative node count %d; h3_short mode must cover every narrative node with at least one scene", len(payload.Scenes), minSceneCount)
 	}
 
 	existingByName := make(map[string]lightweightStoryCharacter, len(existingCharacters))
@@ -1907,14 +2025,36 @@ func runLightweightStoryGeneration(projectID uint, req models.AutoGenerateReques
 
 	task.GlobalTaskManager.UpdateTaskProgress(taskID, 15, "读取提示词知识库并构造请求")
 
-	systemPrompt, userPrompt, err := buildLightweightStoryPrompts(project, req, existingCharacters, previousEpisodeContext)
-	if err != nil {
-		return nil, err
-	}
-
 	var provider models.LLMProvider
 	if err := db.DB.Where("is_active = ?", true).First(&provider).Error; err != nil {
 		return nil, fmt.Errorf("no active LLM provider found")
+	}
+
+	narrativeNodesJSON := ""
+	narrativeNodeCount := 0
+	if normalizeAutoGenerateGenerationMode(req.GenerationMode, req.AllowCharacterSpeech) == AutoGenerateModeH3Short {
+		task.GlobalTaskManager.UpdateTaskProgress(taskID, 20, "H3 短视频前置分镜节点清单")
+
+		breakdown, breakdownErr := runLightweightStoryBreakdown(project, req, provider, taskID)
+		if breakdownErr != nil {
+			Log(
+				LogLevelError,
+				llmLogMessage("H3 短视频前置分镜节点清单失败", provider),
+				breakdownErr.Error(),
+			)
+			return nil, fmt.Errorf("H3 短视频前置分镜节点清单失败: %w", breakdownErr)
+		}
+		narrativeNodeCount = breakdown.TotalNodes
+		nodesJSON, marshalErr := json.MarshalIndent(breakdown.NarrativeNodes, "", "  ")
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		narrativeNodesJSON = string(nodesJSON)
+	}
+
+	systemPrompt, userPrompt, err := buildLightweightStoryPrompts(project, req, existingCharacters, previousEpisodeContext, narrativeNodesJSON, narrativeNodeCount)
+	if err != nil {
+		return nil, err
 	}
 
 	userPrompt, continuationPartial, err := applyLightweightStoryContinuation(projectID, req, continueFromTaskID, userPrompt, provider, taskID)
@@ -1965,7 +2105,7 @@ func runLightweightStoryGeneration(projectID uint, req models.AutoGenerateReques
 	if continuationPartial != nil {
 		payload = mergeLightweightStoryContinuation(continuationPartial, payload)
 	}
-	if err := validateLightweightStoryResponse(payload, existingCharacters, req.GenerationMode); err != nil {
+	if err := validateLightweightStoryResponse(payload, existingCharacters, req.GenerationMode, narrativeNodeCount); err != nil {
 		Log(
 			LogLevelError,
 			llmLogMessage("LLM 返回校验失败(轻量剧情一次性生成)", provider),

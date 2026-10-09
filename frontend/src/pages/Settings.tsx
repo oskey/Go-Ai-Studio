@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import type { Workflow } from "@/types";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Combobox } from "@/components/ui/combobox";
 import { Save, CheckCircle2, XCircle, ExternalLink, FolderSearch } from "lucide-react";
 import { toast } from "sonner";
@@ -14,6 +15,16 @@ interface ModelCheckResult {
     exists: boolean;
     download_urls: string[];
 }
+
+interface H3PromptPreset {
+    id: string;
+    label: string;
+    text: string;
+}
+
+const CUSTOM_H3_PROMPT_ID = "custom";
+
+const normalizePromptText = (text: string) => (text ?? "").replace(/\r\n/g, "\n").trim();
 
 export default function Settings() {
     const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -43,6 +54,10 @@ export default function Settings() {
         jimeng_aspect_ratio: "16:9",
         default_image_model: "",
         default_video_model: "",
+        image_generation_mode: "krea_t2i",
+        h3_video_frame_pick: "middle",
+        h3_video_frame_prompt: "",
+        h3_auto_segment_threshold_seconds: "5",
         global_seed: "264590",
         store_visit_image_reference_order: "blogger_first",
         general_guide_transition_engine: "ltx2_3",
@@ -55,6 +70,13 @@ export default function Settings() {
     const [checkResults, setCheckResults] = useState<ModelCheckResult[]>([]);
     const [isCheckModalOpen, setIsCheckModalOpen] = useState(false);
     const [checkingWorkflow, setCheckingWorkflow] = useState("");
+    const [h3PromptPresets, setH3PromptPresets] = useState<H3PromptPreset[]>([]);
+
+    useEffect(() => {
+        axios.get("/api/settings/h3_prompt_presets")
+            .then(res => setH3PromptPresets(Array.isArray(res.data) ? res.data : []))
+            .catch(err => console.error(err));
+    }, []);
 
     useEffect(() => {
         // Fetch Workflows
@@ -108,6 +130,31 @@ export default function Settings() {
 
     const updateSetting = (key: string, value: any) => {
         setSettings(prev => ({ ...prev, [key]: value }));
+    };
+
+    // H3 自动多段拼接仅在默认视频模型为 H3（ref2v）时生效，否则该选项置灰。
+    const h3SegmentEnabled = settings.default_video_model.toLowerCase().includes("h3");
+
+    // H3 抽帧附加提示词：输入框文本是唯一真源，下拉框的选中项由文本内容派生
+    const h3PromptText = settings.h3_video_frame_prompt;
+    const h3PromptPresetId = h3PromptPresets.find(
+        p => normalizePromptText(p.text) === normalizePromptText(h3PromptText)
+    )?.id ?? CUSTOM_H3_PROMPT_ID;
+    const h3PromptLength = normalizePromptText(h3PromptText).length;
+
+    const applyH3PromptPreset = (presetId: string) => {
+        if (presetId === CUSTOM_H3_PROMPT_ID) {
+            return;
+        }
+        const preset = h3PromptPresets.find(p => p.id === presetId);
+        if (!preset) {
+            return;
+        }
+        const isEditedContent = normalizePromptText(h3PromptText) !== "" && h3PromptPresetId === CUSTOM_H3_PROMPT_ID;
+        if (isEditedContent && !window.confirm("将覆盖当前自定义提示词内容，是否继续？")) {
+            return;
+        }
+        updateSetting("h3_video_frame_prompt", preset.text);
     };
 
     const checkModels = (workflowName: string) => {
@@ -302,12 +349,82 @@ export default function Settings() {
                             <p className="text-xs text-muted-foreground mt-1">这里只决定即梦在线模型的官方画幅预设，不影响本地 ComfyUI 视频宽高。视频时长不在这里配置，提交时会直接使用当前镜头的 duration_seconds，并按 24fps 自动换算成 frames。</p>
                         </div>
                     </div>
+
+                    <div>
+                        <label className={`block text-sm font-medium mb-2 ${h3SegmentEnabled ? "" : "text-muted-foreground"}`}>Minimax H3 超阈值自动多段拼接</label>
+                        <Input
+                            type="number"
+                            min={0}
+                            disabled={!h3SegmentEnabled}
+                            value={settings.h3_auto_segment_threshold_seconds}
+                            onChange={e => updateSetting("h3_auto_segment_threshold_seconds", e.target.value)}
+                            placeholder="5"
+                        />
+                        <p className={`text-xs mt-1 ${h3SegmentEnabled ? "text-muted-foreground" : "text-amber-600"}`}>
+                            {h3SegmentEnabled
+                                ? "仅在使用 Minimax H3 视频模型时生效：目标视频时长超过该秒数时，自动切成 N 段各 5s（向上取整到 N×5s），用 H3 ref2v 首尾帧衔接后无缝拼接；填 0 或留空表示关闭。"
+                                : "警告：该功能仅在「本地默认视频模型」选择 Minimax H3 模型（minimax_h3_* 系列）时才生效，当前未启用，此选项已置灰。"}
+                        </p>
+                    </div>
                 </div>
             </div>
 
             <div className="bg-card p-6 rounded-lg border border-border shadow-sm">
                 <h2 className="text-xl font-semibold mb-4 text-primary">全局默认值</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium mb-2">图片生成方式</label>
+                        <select
+                            value={settings.image_generation_mode}
+                            onChange={e => updateSetting("image_generation_mode", e.target.value)}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                            <option value="krea_t2i">用户设置的图片生成模型（默认）</option>
+                            <option value="h3_video_frame">MiniMax H3 约 0.1 秒视频抽帧</option>
+                        </select>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            用于场景图与角色预览图。抽帧模式使用内置 minimax_h3_t2v 工作流生成约 0.1 秒短视频再抽帧作为图片；尺寸会等比缩放到 H3 上限内并对齐 16。
+                        </p>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium mb-2">H3 抽帧位置</label>
+                        <select
+                            value={settings.h3_video_frame_pick}
+                            onChange={e => updateSetting("h3_video_frame_pick", e.target.value)}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                            <option value="first">首帧（最贴近提示词起始状态）</option>
+                            <option value="middle">中间帧（默认，画面通常最稳定）</option>
+                            <option value="last">尾帧（运动最充分）</option>
+                        </select>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            仅在「图片生成方式」选择 H3 短视频抽帧时生效。H3 极短视频约 5 帧，尾帧运动幅度最大但也最易变形。
+                        </p>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium mb-2">H3 抽帧附加提示词</label>
+                        <select
+                            value={h3PromptPresetId}
+                            onChange={e => applyH3PromptPreset(e.target.value)}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mb-2"
+                        >
+                            {h3PromptPresets.map(preset => (
+                                <option key={preset.id} value={preset.id}>{preset.label}</option>
+                            ))}
+                            <option value={CUSTOM_H3_PROMPT_ID}>自定义（可直接编辑下方内容）</option>
+                        </select>
+                        <Textarea
+                            value={h3PromptText}
+                            onChange={e => updateSetting("h3_video_frame_prompt", e.target.value)}
+                            placeholder="留空则不追加。可从上方预设快速填入后自行修改。"
+                            rows={5}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                            仅在「图片生成方式」选择 H3 短视频抽帧时生效，追加到场景图与角色图的提示词末尾；留空表示不追加。
+                            修改下方内容后下拉框会自动变为「自定义」，已保存的内容不会随预设文案更新。
+                            <span className={h3PromptLength > 300 ? "text-amber-600" : ""}>当前 {h3PromptLength} 字（建议 150–250 字，超过 300 字会稀释场景描述）。</span>
+                        </p>
+                    </div>
                      <div className="space-y-4">
                         <h3 className="text-lg font-medium text-muted-foreground">场景图片生成</h3>
                         <div className="grid grid-cols-2 gap-4">
@@ -449,6 +566,11 @@ export default function Settings() {
                             )}
                         </div>
                          <p className="text-xs text-muted-foreground mt-1">解析自 workflows/ 目录</p>
+                         {settings.image_generation_mode === "h3_video_frame" && (
+                             <p className="text-xs text-amber-600 mt-1">
+                                 注意：当前「图片生成方式」为 MiniMax H3 短视频抽帧，此选项不生效，场景图/角色图使用内置 minimax_h3_t2v/ref2v 工作流。
+                             </p>
+                         )}
                     </div>
                      <div className="space-y-2">
                         <label className="block text-sm font-medium mb-2">本地默认视频模型</label>

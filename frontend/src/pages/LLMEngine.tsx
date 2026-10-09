@@ -216,6 +216,8 @@ export default function LLMEngine() {
     const [isEditing, setIsEditing] = useState(false);
     const [currentProvider, setCurrentProvider] = useState<Partial<LLMProvider>>({});
     const [requestMaxTokensInput, setRequestMaxTokensInput] = useState("");
+    const [lmStudioMaxTokensInput, setLMStudioMaxTokensInput] = useState("");
+    const [lmStudioContextWindowInput, setLMStudioContextWindowInput] = useState("");
     const [requestTemperatureInput, setRequestTemperatureInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [chartMode, setChartMode] = useState<ChartMode>("day");
@@ -271,12 +273,20 @@ export default function LLMEngine() {
         const parsedRequestTemperature = /^\d+(\.\d+)?$/.test(requestTemperatureInput.trim())
             ? Number(requestTemperatureInput.trim())
             : 0;
+        const parsedLMStudioMaxTokens = /^\d+$/.test(lmStudioMaxTokensInput.trim())
+            ? Number(lmStudioMaxTokensInput.trim())
+            : 8192;
+        const parsedLMStudioContextWindow = /^\d+$/.test(lmStudioContextWindowInput.trim())
+            ? Number(lmStudioContextWindowInput.trim())
+            : 40960;
 
         const payload = {
             ...currentProvider,
             provider: normalizeProviderValue(currentProvider.provider),
             request_max_tokens: parsedRequestMaxTokens,
             request_temperature: parsedRequestTemperature,
+            lm_studio_max_tokens: parsedLMStudioMaxTokens,
+            lm_studio_context_window: parsedLMStudioContextWindow,
         };
 
         const req = currentProvider.id
@@ -436,9 +446,12 @@ export default function LLMEngine() {
                                 enable_advanced_request_params: false,
                                 request_max_tokens: 0,
                                 request_temperature: 0,
+                                compat_lm_studio: false,
                             });
                             setRequestMaxTokensInput("");
                             setRequestTemperatureInput("");
+                            setLMStudioMaxTokensInput("");
+                            setLMStudioContextWindowInput("");
                             setIsEditing(true);
                         }}
                         className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90"
@@ -539,6 +552,16 @@ export default function LLMEngine() {
                                                     ? String(p.request_temperature)
                                                     : ""
                                             );
+                                            setLMStudioMaxTokensInput(
+                                                p.lm_studio_max_tokens && p.lm_studio_max_tokens > 0
+                                                    ? String(p.lm_studio_max_tokens)
+                                                    : ""
+                                            );
+                                            setLMStudioContextWindowInput(
+                                                p.lm_studio_context_window && p.lm_studio_context_window > 0
+                                                    ? String(p.lm_studio_context_window)
+                                                    : ""
+                                            );
                                             setIsEditing(true);
                                         }}
                                         className="p-1 transition-colors hover:text-blue-400"
@@ -590,7 +613,7 @@ export default function LLMEngine() {
 
             {isEditing && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="relative w-full max-w-lg animate-in fade-in zoom-in rounded-lg border border-border bg-card p-6 shadow-lg duration-200">
+                    <div className="relative flex w-full max-w-lg animate-in fade-in zoom-in flex-col rounded-lg border border-border bg-card shadow-lg duration-200 max-h-[90vh]">
                         <button
                             onClick={() => setIsEditing(false)}
                             className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
@@ -598,9 +621,9 @@ export default function LLMEngine() {
                             <X className="h-5 w-5" />
                         </button>
 
-                        <h2 className="mb-6 text-xl font-bold">{currentProvider.id ? "编辑引擎" : "新增引擎"}</h2>
+                        <h2 className="mb-4 shrink-0 p-6 pb-0 text-xl font-bold">{currentProvider.id ? "编辑引擎" : "新增引擎"}</h2>
 
-                        <div className="space-y-4">
+                        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="mb-1 block text-sm font-medium">名称</label>
@@ -656,6 +679,65 @@ export default function LLMEngine() {
                                     onChange={(e) => setCurrentProvider({ ...currentProvider, model_name: e.target.value })}
                                     placeholder="gpt-4o"
                                 />
+                            </div>
+
+                            <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <div className="text-sm font-medium">兼容 LM Studio 模式</div>
+                                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                            勾选后请求将不发送 <code className="rounded bg-muted px-1">json_object</code>，适用于 LM Studio 等仅接受
+                                            <code className="rounded bg-muted px-1">json_schema</code> / <code className="rounded bg-muted px-1">text</code> 的本地推理服务。
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        checked={!!currentProvider.compat_lm_studio}
+                                        onCheckedChange={(checked) =>
+                                            setCurrentProvider({
+                                                ...currentProvider,
+                                                compat_lm_studio: checked,
+                                            })
+                                        }
+                                    />
+                                </div>
+                                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <div>
+                                        <label className="mb-1 block text-sm font-medium">LM Studio 输出 Token 配额</label>
+                                        <Input
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={lmStudioMaxTokensInput}
+                                            onChange={(e) =>
+                                                setLMStudioMaxTokensInput(
+                                                    e.target.value.replace(/[^\d]/g, "")
+                                                )
+                                            }
+                                            placeholder="默认 8192"
+                                            disabled={!currentProvider.compat_lm_studio}
+                                        />
+                                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                            兼容模式下未显式指定时使用的默认输出配额，为思考型模型(如 Qwen3)预留推理空间，防止默认 2048 上限被推理占满导致结果为空。留空默认 8192；若同时设置了下方最大输出 Token 上限，以上限为准。
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-sm font-medium">上下文窗口长度</label>
+                                        <Input
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={lmStudioContextWindowInput}
+                                            onChange={(e) =>
+                                                setLMStudioContextWindowInput(
+                                                    e.target.value.replace(/[^\d]/g, "")
+                                                )
+                                            }
+                                            placeholder="默认 40960"
+                                            disabled={!currentProvider.compat_lm_studio}
+                                        />
+                                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                            LM Studio 加载模型时配置的 context length。生成前会估算输入占用，接近上限时预警。留空默认 40960。
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
@@ -717,7 +799,7 @@ export default function LLMEngine() {
                             </div>
                         </div>
 
-                        <div className="mt-8 flex justify-end gap-3">
+                        <div className="shrink-0 border-t border-border p-6 pt-4 flex justify-end gap-3">
                             <button
                                 onClick={() => setIsEditing(false)}
                                 className="rounded-md px-4 py-2 transition-colors hover:bg-accent"

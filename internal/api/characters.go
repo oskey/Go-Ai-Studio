@@ -361,28 +361,39 @@ func triggerCharacterImageGeneration(char models.Character) (string, error) {
 	}
 	width, height := getConfiguredCharacterImageSize()
 	seed := getConfiguredGlobalSeed()
-	// Get Default Image Workflow
-	var setting models.SystemSettings
-	if err := db.DB.Where("key = ?", KeyDefaultImageModel).First(&setting).Error; err != nil {
-		return "", fmt.Errorf("failed to get default image workflow setting")
-	}
-	workflowName := setting.Value
-	if workflowName == "" {
-		return "", fmt.Errorf("default image workflow not set")
-	}
+	h3VideoFrameMode := useH3VideoFrameMode()
 
-	// Find workflow file
-	files, _ := filepath.Glob(filepath.Join("workflows", "*.json"))
 	var targetFile string
-	for _, file := range files {
-		meta, err := workflow.ParseWorkflow(file)
-		if err == nil && meta.WorkflowName == workflowName {
-			targetFile = file
-			break
+	if h3VideoFrameMode {
+		h3File, err := findH3T2VWorkflowFile()
+		if err != nil {
+			return "", err
 		}
-	}
-	if targetFile == "" {
-		return "", fmt.Errorf("workflow file for '%s' not found", workflowName)
+		width, height = normalizeH3VideoFrameSize(width, height)
+		targetFile = h3File
+	} else {
+		// Get Default Image Workflow
+		var setting models.SystemSettings
+		if err := db.DB.Where("key = ?", KeyDefaultImageModel).First(&setting).Error; err != nil {
+			return "", fmt.Errorf("failed to get default image workflow setting")
+		}
+		workflowName := setting.Value
+		if workflowName == "" {
+			return "", fmt.Errorf("default image workflow not set")
+		}
+
+		// Find workflow file
+		files, _ := filepath.Glob(filepath.Join("workflows", "*.json"))
+		for _, file := range files {
+			meta, err := workflow.ParseWorkflow(file)
+			if err == nil && meta.WorkflowName == workflowName {
+				targetFile = file
+				break
+			}
+		}
+		if targetFile == "" {
+			return "", fmt.Errorf("workflow file for '%s' not found", workflowName)
+		}
 	}
 	workflowLabel := workflowDisplayNameFromPath(targetFile)
 
@@ -436,6 +447,7 @@ func triggerCharacterImageGeneration(char models.Character) (string, error) {
 	}
 
 	finalPositivePrompt := appendCharacterStylePrompt(basePositivePrompt, project)
+	finalPositivePrompt = appendH3VideoFrameStaticPrompt(finalPositivePrompt)
 	setInput(meta.PositiveNodeID, meta.PositiveInputKey, finalPositivePrompt)
 
 	if meta.NegativeNodeID != "" {
@@ -447,9 +459,12 @@ func triggerCharacterImageGeneration(char models.Character) (string, error) {
 	// Set Dimensions
 	setInput(meta.WidthNodeID, meta.WidthInputKey, width)
 	setInput(meta.HeightNodeID, meta.HeightInputKey, height)
+	if h3VideoFrameMode {
+		injectH3Duration(wfJSON, h3VideoFrameDurationSeconds)
+	}
 
 	// Inject Reference Image Path if enabled
-	if char.UseRefImage && char.RefImage != "" {
+	if !h3VideoFrameMode && char.UseRefImage && char.RefImage != "" {
 		// Need to find the image input node for Qwen workflow
 		// Assuming we don't have a specific metadata field for it yet, we search for LoadImage node?
 		// Or hardcode if we know the workflow structure.
@@ -542,48 +557,59 @@ func triggerCharacterImageGeneration(char models.Character) (string, error) {
 					// Check for outputs
 					if outputs, ok := history["outputs"].(map[string]interface{}); ok {
 						for _, nodeOutput := range outputs {
-							if images, ok := nodeOutput.(map[string]interface{})["images"].([]interface{}); ok && len(images) > 0 {
-								imgData := images[0].(map[string]interface{})
-								filename := imgData["filename"].(string)
-								subfolder := imgData["subfolder"].(string)
-								typeStr := imgData["type"].(string)
-
-								// Download Image
-								// Save to output/<project_code>/characters/<char_id>_<timestamp>.png
-								saveDir := filepath.Join("output", projectCode, "characters")
-								if err := os.MkdirAll(saveDir, 0755); err != nil {
-									Log(LogLevelError, "Create Dir Failed", err.Error())
-									return
-								}
-								saveFilename := fmt.Sprintf("char_%d_%d.png", charID, time.Now().Unix())
-								savePath := filepath.Join(saveDir, saveFilename)
-
-								if err := DownloadComfyImage(filename, subfolder, typeStr, savePath); err == nil {
-									// Update Character Record
-									var c models.Character
-									if err := db.DB.First(&c, charID).Error; err == nil {
-										// Store relative path for frontend (e.g. /output/...)
-										// Convert OS path separator to slash
-										webPath := "/" + filepath.ToSlash(savePath)
-										c.GeneratedImage = webPath
-										c.Status = "generated"
-										db.DB.Save(&c)
-										Log(LogLevelInfo, fmt.Sprintf("Image Saved（%s）", c.Name), fmt.Sprintf("Saved character image: %s", webPath))
-										// Notify frontend via SSE
-										BroadcastUpdate("character", charID)
-									}
-								} else {
-									Log(LogLevelError, "Image Download Failed", err.Error())
-									var c models.Character
-									if err := db.DB.First(&c, charID).Error; err == nil {
-										c.Status = "failed"
-										c.UpdatedAt = time.Now()
-										db.DB.Save(&c)
-										BroadcastUpdate("character", charID)
-									}
-								}
-								return // Done
+							imageOutputs, ok := nodeOutput.(map[string]interface{})
+							if !ok {
+								continue
 							}
+							fileData, isVideo, ok := resolveImageOrVideoOutput(imageOutputs)
+							if !ok {
+								continue
+							}
+
+							// Save to output/<project_code>/characters/<char_id>_<timestamp>.png
+							saveDir := filepath.Join("output", projectCode, "characters")
+							if err := os.MkdirAll(saveDir, 0755); err != nil {
+								Log(LogLevelError, "Create Dir Failed", err.Error())
+								return
+							}
+							saveFilename := fmt.Sprintf("char_%d_%d.png", charID, time.Now().Unix())
+
+							var webPath string
+							var saveErr error
+							if isVideo {
+								webPath, saveErr = downloadHistoryVideoAndExtractFrame(fileData, saveDir, saveFilename)
+							} else {
+								savePath := filepath.Join(saveDir, saveFilename)
+								filename, _ := fileData["filename"].(string)
+								subfolder, _ := fileData["subfolder"].(string)
+								typeStr, _ := fileData["type"].(string)
+								if saveErr = DownloadComfyImage(filename, subfolder, typeStr, savePath); saveErr == nil {
+									webPath = "/" + filepath.ToSlash(savePath)
+								}
+							}
+
+							if saveErr == nil {
+								// Update Character Record
+								var c models.Character
+								if err := db.DB.First(&c, charID).Error; err == nil {
+									c.GeneratedImage = webPath
+									c.Status = "generated"
+									db.DB.Save(&c)
+									Log(LogLevelInfo, fmt.Sprintf("Image Saved（%s）", c.Name), fmt.Sprintf("Saved character image: %s", webPath))
+									// Notify frontend via SSE
+									BroadcastUpdate("character", charID)
+								}
+							} else {
+								Log(LogLevelError, "Image Download Failed", saveErr.Error())
+								var c models.Character
+								if err := db.DB.First(&c, charID).Error; err == nil {
+									c.Status = "failed"
+									c.UpdatedAt = time.Now()
+									db.DB.Save(&c)
+									BroadcastUpdate("character", charID)
+								}
+							}
+							return // Done
 						}
 					}
 				}

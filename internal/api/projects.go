@@ -732,7 +732,7 @@ func ImportStoryJSON(c *gin.Context) {
 	}
 
 	generationMode := inferGenerationModeFromPayload(payload)
-	if err := validateLightweightStoryResponse(payload, existingCharacters, generationMode); err != nil {
+	if err := validateLightweightStoryResponse(payload, existingCharacters, generationMode, 0); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -2577,7 +2577,14 @@ func requestLLMContentStreamingOpenAI(client *openai.Client, req openai.ChatComp
 		}
 	}
 	content := strings.TrimSpace(builder.String())
-	if streamLogLabel != "" && content != "" {
+	if content == "" {
+		if streamLogLabel != "" {
+			finalizeLLMStreamState(streamStateID, taskID, provider, streamLogLabel, "", "failed")
+		}
+		Log(LogLevelWarn, llmLogMessage(fmt.Sprintf("LLM 流式返回空内容，降级非流式重试(%s)", streamLogLabel), provider), "")
+		return requestLLMContentNonStreamingOpenAI(buildLLMOpenAIClient(provider, timeout, false), req, provider, taskID, streamLogLabel)
+	}
+	if streamLogLabel != "" {
 		finalizeLLMStreamState(streamStateID, taskID, provider, streamLogLabel, content, "completed")
 	}
 	RecordLLMUsageOutput(provider, content)

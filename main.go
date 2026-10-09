@@ -355,6 +355,7 @@ func main() {
 
 		// Settings Routes
 		apiGroup.GET("/settings", api.GetSettings)
+		apiGroup.GET("/settings/h3_prompt_presets", api.GetH3PromptPresets)
 		apiGroup.PUT("/settings", api.UpdateSettings)
 
 		// ComfyUI Routes

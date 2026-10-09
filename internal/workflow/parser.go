@@ -124,6 +124,10 @@ func ParseWorkflow(filePath string) (*models.WorkflowMetadata, error) {
 				meta.PositiveInputKey = key
 			}
 			if branch == "negative" && meta.NegativeNodeID == "" {
+				// 负向兜底常误落到与正向相同的文本节点（如 BasicGuider 工作流），会覆盖正向 prompt
+				if meta.PositiveNodeID != "" && nodeID == meta.PositiveNodeID {
+					return
+				}
 				meta.NegativeNodeID = nodeID
 				meta.NegativeInputKey = key
 			}

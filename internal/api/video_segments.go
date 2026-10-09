@@ -22,6 +22,7 @@ import (
 
 const defaultSegmentFPS = 24
 const fixedSegmentDurationSeconds = 3
+const fixedR2VSegmentDurationSeconds = 5
 const fixedVideoNegativeTemplate = "worst quality, low quality, bad quality, jpeg artifacts, blurry details, cartoon, still image, static frame, bad hands, malformed hands, deformed hands, extra hands, duplicate hands, missing hands, fused hands, merged hands, bad face, malformed limbs, merged limbs, fused arms, extra arms, fused fingers, merged fingers, interlocked fingers, extra fingers, missing fingers, malformed fingers, deformed fingers, broken fingers, twisted fingers, deformed thumbs, malformed thumbs, extra thumbs, missing thumbs, subtitle, subtitles, caption, text, text overlay, on-screen text, lower-third, title card, logo, logos, watermark, watermarks, speech bubble, dialogue box, readable signage, overlay, overlay effects, titles, has blurbox, has subtitles, artifacts around text, unreadable text, incorrect lettering, incorrect slogan"
 const minVideoTotalDurationSeconds = 3
 const maxVideoTotalDurationSeconds = 15
@@ -252,8 +253,8 @@ func validateVideoFingerprintPhaseContent(payload *VideoFingerprintPayload) erro
 }
 
 func buildStoredVideoSegmentPlan(video models.Video, workflowFamily string, lang string) (*VideoSegmentPlanResponse, error) {
-	if family := strings.TrimSpace(strings.ToLower(workflowFamily)); family != "" && family != "ltx" {
-		return nil, fmt.Errorf("only the LTX video workflow is supported in this version")
+	if family := strings.TrimSpace(strings.ToLower(workflowFamily)); family != "" && family != "ltx" && family != "r2v" {
+		return nil, fmt.Errorf("unsupported video workflow family: %s", workflowFamily)
 	}
 	fullPrompt := strings.TrimSpace(video.VideoPrompt)
 	if fullPrompt == "" {
@@ -280,21 +281,52 @@ func buildStoredVideoSegmentPlan(video models.Video, workflowFamily string, lang
 		playerDesc = fullPrompt
 	}
 
+	segments := []VideoSegmentPlanSegment{
+		{
+			SegmentIndex:               1,
+			PromptPos:                  fullPrompt,
+			PromptNeg:                  promptNeg,
+			PlayerDesc:                 playerDesc,
+			RecommendedFPS:             recommendedFPS,
+			RecommendedDurationSeconds: total,
+		},
+	}
+
+	// 默认视频模型为 H3（r2v 家族）且目标时长超过阈值时，自动切成 N 段，
+	// 每段时长取用户设置的阈值（getConfiguredH3AutoSegmentThresholdSeconds），
+	// 由现有 renderVideoSegments 逐段渲染（首尾帧衔接）并 mergeVideoSegments 无缝拼接。
+	if strings.ToLower(strings.TrimSpace(workflowFamily)) == "r2v" {
+		if threshold := getConfiguredH3AutoSegmentThresholdSeconds(); threshold > 0 && total > threshold {
+			segments = make([]VideoSegmentPlanSegment, 0, countR2VSegments(total, threshold))
+			for i, n := 0, countR2VSegments(total, threshold); i < n; i++ {
+				segments = append(segments, VideoSegmentPlanSegment{
+					SegmentIndex:               i + 1,
+					PromptPos:                  fullPrompt,
+					PromptNeg:                  promptNeg,
+					PlayerDesc:                 playerDesc,
+					RecommendedFPS:             recommendedFPS,
+					RecommendedDurationSeconds: threshold,
+				})
+			}
+		}
+	}
+
 	return &VideoSegmentPlanResponse{
 		PlayerDesc:           playerDesc,
 		RecommendedFPS:       recommendedFPS,
 		TotalDurationSeconds: total,
-		Segments: []VideoSegmentPlanSegment{
-			{
-				SegmentIndex:               1,
-				PromptPos:                  fullPrompt,
-				PromptNeg:                  promptNeg,
-				PlayerDesc:                 playerDesc,
-				RecommendedFPS:             recommendedFPS,
-				RecommendedDurationSeconds: total,
-			},
-		},
+		Segments:             segments,
 	}, nil
+}
+
+func countR2VSegments(total int, segmentDurationSeconds int) int {
+	if total <= 0 {
+		return 1
+	}
+	if segmentDurationSeconds <= 0 {
+		segmentDurationSeconds = fixedR2VSegmentDurationSeconds
+	}
+	return (total + segmentDurationSeconds - 1) / segmentDurationSeconds
 }
 
 func clampStoredVideoTotalDuration(recommended int) int {
@@ -964,6 +996,36 @@ func mergeVideoSegments(projectCode string, videoID uint, segments []models.Vide
 	return "/" + filepath.ToSlash(outputPath), nil
 }
 
+func isH3R2VWorkflow(wfJSON map[string]interface{}) bool {
+	for _, node := range wfJSON {
+		nodeMap, ok := node.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		classType, _ := nodeMap["class_type"].(string)
+		if classType == "MiniMaxH3ImageToVideo" {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveH3R2VLastFrameImage 返回当前镜下一镜的首帧场景图（R2V last_frame 用）。
+// 找不到下一镜（末期/未生成）时返回空串，调用方回退为首帧图。
+func resolveH3R2VLastFrameImage(video models.Video) string {
+	if err := hydrateVideoScene(&video, false); err != nil {
+		return ""
+	}
+	var next models.Scene
+	err := db.DB.Where("project_id = ? AND episode = ? AND scene_number > ?",
+		video.ProjectID, video.Scene.Episode, video.Scene.SceneNumber).
+		Order("scene_number asc").First(&next).Error
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(next.GeneratedImage)
+}
+
 func triggerVideoGenerationWithInput(video models.Video, inputImagePath string, positive string, negative string, fps int, length int, seed int64, saveLabel string) (string, error) {
 	var project models.Project
 	if err := db.DB.First(&project, video.ProjectID).Error; err != nil {
@@ -1053,7 +1115,7 @@ func triggerVideoGenerationWithInput(video models.Video, inputImagePath string, 
 	if fps > 0 {
 		setInput(meta.FPSNodeID, meta.FPSInputKey, fps)
 	}
-	if length > 0 {
+	if length > 0 && !hasLinkedInput(meta.LengthNodeID, meta.LengthInputKey) {
 		setInput(meta.LengthNodeID, meta.LengthInputKey, length)
 	}
 	for _, node := range wfJSON {
@@ -1097,27 +1159,71 @@ func triggerVideoGenerationWithInput(video models.Video, inputImagePath string, 
 		}
 	}
 
-	var imageNodeID string
-	for id, node := range wfJSON {
-		if nodeMap, ok := node.(map[string]interface{}); ok {
-			if classType, ok := nodeMap["class_type"].(string); ok && classType == "LoadImage" {
-				imageNodeID = id
-				break
-			}
-		}
+	r2v := isH3R2VWorkflow(wfJSON)
+
+	if r2v && fps > 0 && length > 1 {
+		// H3 工作流的帧数由 (input:duration) 的 PrimitiveFloat → ComfyMathExpression 推导，
+		// 直接注入 length 会被 hasLinkedInput 拦截（129.length 已链到 133 表达式），
+		// 必须把秒数注入 duration 节点，否则一直用模板默认时长。
+		injectH3Duration(wfJSON, float64(length-1)/float64(fps))
 	}
 
-	absImagePath, err := assetWebPathToAbs(inputImagePath)
-	if err != nil {
-		return "", err
-	}
-	uploadedName, err := UploadToComfyUIInput(absImagePath)
-	if err != nil {
-		if imageNodeID != "" {
-			setInput(imageNodeID, "image", absImagePath)
+	uploadInput := func(path string) (string, error) {
+		absImagePath, err := assetWebPathToAbs(path)
+		if err != nil {
+			return "", err
 		}
-	} else if imageNodeID != "" {
-		setInput(imageNodeID, "image", uploadedName)
+		uploadedName, err := UploadToComfyUIInput(absImagePath)
+		if err != nil {
+			return absImagePath, nil
+		}
+		return uploadedName, nil
+	}
+
+	if r2v {
+		firstFrame := inputImagePath
+		lastFrame := resolveH3R2VLastFrameImage(video)
+		if lastFrame == "" {
+			lastFrame = firstFrame
+		}
+		firstUploaded, err := uploadInput(firstFrame)
+		if err != nil {
+			return "", err
+		}
+		lastUploaded, err := uploadInput(lastFrame)
+		if err != nil {
+			return "", err
+		}
+		for id, node := range wfJSON {
+			nodeMap, ok := node.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			classType, _ := nodeMap["class_type"].(string)
+			if classType != "LoadImage" {
+				continue
+			}
+			metaInfo, _ := nodeMap["_meta"].(map[string]interface{})
+			title, _ := metaInfo["title"].(string)
+			switch title {
+			case "(input:image) First Frame":
+				setInput(id, "image", firstUploaded)
+			case "(input:image) Last Frame":
+				setInput(id, "image", lastUploaded)
+			}
+		}
+	} else {
+		uploadedName, err := uploadInput(inputImagePath)
+		if err != nil {
+			return "", err
+		}
+		for id, node := range wfJSON {
+			if nodeMap, ok := node.(map[string]interface{}); ok {
+				if classType, ok := nodeMap["class_type"].(string); ok && classType == "LoadImage" {
+					setInput(id, "image", uploadedName)
+				}
+			}
+		}
 	}
 
 	logComfyWorkflowPayload("Video ComfyUI Workflow Payload", workflowLabel, wfJSON)
@@ -1325,6 +1431,41 @@ func renderVideoSegments(videoID uint, projectID uint, taskID string, startSegme
 	return nil
 }
 
+// ensureStoredVideoSegmentPlan 在视频尚无预存分段时，按当前默认视频模型的实际
+// workflow family 构建并持久化分段计划。已有分段时返回 nil plan（直接按存储分段渲染）。
+func ensureStoredVideoSegmentPlan(videoID uint, projectID uint) (*VideoSegmentPlanResponse, error) {
+	var segmentCount int64
+	db.DB.Model(&models.VideoSegment{}).Where("video_id = ?", videoID).Count(&segmentCount)
+	if segmentCount != 0 {
+		return nil, nil
+	}
+
+	var video models.Video
+	if err := db.DB.First(&video, videoID).Error; err != nil {
+		return nil, fmt.Errorf("video not found")
+	}
+	if err := hydrateVideoScene(&video, true); err != nil {
+		return nil, err
+	}
+	var project models.Project
+	if err := db.DB.Preload("ArtStyle").First(&project, projectID).Error; err != nil {
+		return nil, fmt.Errorf("project not found")
+	}
+	workflowFamily, err := resolveSelectedVideoWorkflowFamily()
+	if err != nil {
+		return nil, err
+	}
+	plan, err := buildStoredVideoSegmentPlan(video, workflowFamily, loadPromptLanguage())
+	if err != nil {
+		return nil, err
+	}
+	if err := saveVideoSegmentPlan(&video, project, plan); err != nil {
+		return nil, err
+	}
+	BroadcastUpdate("video", video.ID)
+	return plan, nil
+}
+
 func HandleRenderVideoSegmentsTask(t *models.Task) (interface{}, error) {
 	var payload struct {
 		VideoID   uint `json:"video_id"`
@@ -1334,33 +1475,9 @@ func HandleRenderVideoSegmentsTask(t *models.Task) (interface{}, error) {
 		return nil, fmt.Errorf("invalid payload: %v", err)
 	}
 
-	var segmentCount int64
-	db.DB.Model(&models.VideoSegment{}).Where("video_id = ?", payload.VideoID).Count(&segmentCount)
-
-	var transientPlan *VideoSegmentPlanResponse
-	if segmentCount == 0 {
-		var video models.Video
-		if err := db.DB.First(&video, payload.VideoID).Error; err == nil {
-			if err := hydrateVideoScene(&video, true); err == nil {
-				var project models.Project
-				if err := db.DB.Preload("ArtStyle").First(&project, payload.ProjectID).Error; err == nil {
-					workflowFamily, familyErr := resolveSelectedVideoWorkflowFamily()
-					if familyErr != nil {
-						return nil, familyErr
-					}
-					lang := loadPromptLanguage()
-					plan, planErr := buildStoredVideoSegmentPlan(video, workflowFamily, lang)
-					if planErr != nil {
-						return nil, planErr
-					}
-					transientPlan = plan
-					if err := saveVideoSegmentPlan(&video, project, plan); err != nil {
-						return nil, err
-					}
-					BroadcastUpdate("video", video.ID)
-				}
-			}
-		}
+	transientPlan, err := ensureStoredVideoSegmentPlan(payload.VideoID, payload.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := renderVideoSegments(payload.VideoID, payload.ProjectID, t.ID, 1, transientPlan); err != nil {

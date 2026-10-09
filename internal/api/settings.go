@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"kt-ai-studio/internal/db"
 	"kt-ai-studio/internal/models"
@@ -13,41 +14,50 @@ import (
 )
 
 const (
-	KeyImageHeight          = "image_height"
-	KeyImageWidth           = "image_width"
-	KeyCharacterImageHeight = "character_image_height"
-	KeyCharacterImageWidth  = "character_image_width"
-	KeyOptimizeClothing     = "optimize_clothing"
-	KeyVideoHeight          = "video_height"
-	KeyVideoWidth           = "video_width"
-	KeyVideoGenerationProvider   = "video_generation_provider"
-	KeyJimengAPIBase             = "jimeng_api_base"
-	KeyJimengAccessKey           = "jimeng_access_key"
-	KeyJimengSecretKey           = "jimeng_secret_key"
-	KeyJimengReqKey              = "jimeng_req_key"
-	KeyJimengAspectRatio         = "jimeng_aspect_ratio"
-	KeyJimengVideoWidth          = "jimeng_video_width"            // legacy migration only
-	KeyJimengVideoHeight         = "jimeng_video_height"           // legacy migration only
-	KeyJimengVideoDurationSeconds = "jimeng_video_duration_seconds" // legacy migration only
-	KeyJimengVideoFrames         = "jimeng_video_frames"           // legacy migration only
-	KeyLLMTimeoutMinutes         = "llm_timeout_minutes"
-	KeyDefaultImageModel         = "default_image_model"
-	KeyDefaultVideoModel         = "default_video_model"
-	KeyGlobalSeed                = "global_seed"
+	KeyImageHeight                   = "image_height"
+	KeyImageWidth                    = "image_width"
+	KeyCharacterImageHeight          = "character_image_height"
+	KeyCharacterImageWidth           = "character_image_width"
+	KeyOptimizeClothing              = "optimize_clothing"
+	KeyVideoHeight                   = "video_height"
+	KeyVideoWidth                    = "video_width"
+	KeyVideoGenerationProvider       = "video_generation_provider"
+	KeyJimengAPIBase                 = "jimeng_api_base"
+	KeyJimengAccessKey               = "jimeng_access_key"
+	KeyJimengSecretKey               = "jimeng_secret_key"
+	KeyJimengReqKey                  = "jimeng_req_key"
+	KeyJimengAspectRatio             = "jimeng_aspect_ratio"
+	KeyJimengVideoWidth              = "jimeng_video_width"            // legacy migration only
+	KeyJimengVideoHeight             = "jimeng_video_height"           // legacy migration only
+	KeyJimengVideoDurationSeconds    = "jimeng_video_duration_seconds" // legacy migration only
+	KeyJimengVideoFrames             = "jimeng_video_frames"           // legacy migration only
+	KeyLLMTimeoutMinutes             = "llm_timeout_minutes"
+	KeyDefaultImageModel             = "default_image_model"
+	KeyDefaultVideoModel             = "default_video_model"
+	KeyImageGenMode                  = "image_generation_mode"
+	KeyH3VideoFramePick              = "h3_video_frame_pick"
+	KeyH3VideoFramePrompt            = "h3_video_frame_prompt"
+	KeyH3AutoSegmentThresholdSeconds = "h3_auto_segment_threshold_seconds"
+	KeyGlobalSeed                    = "global_seed"
 	KeyStoreVisitImageReferenceOrder = "store_visit_image_reference_order"
-	KeyGeneralGuideTransitionEngine = "general_guide_transition_engine"
-	KeyComfyUIAddress            = "comfyui_api_address"
-	KeyComfyUIModelsDir          = "comfyui_models_dir"
-	KeyFFmpegPath                = "ffmpeg_path"
+	KeyGeneralGuideTransitionEngine  = "general_guide_transition_engine"
+	KeyComfyUIAddress                = "comfyui_api_address"
+	KeyComfyUIModelsDir              = "comfyui_models_dir"
+	KeyFFmpegPath                    = "ffmpeg_path"
 )
 
 const (
-	VideoGenerationProviderLocal  = "local"
-	VideoGenerationProviderJimeng = "jimeng"
-	StoreVisitImageOrderBloggerFirst = "blogger_first"
-	StoreVisitImageOrderSceneFirst   = "scene_first"
-	GeneralGuideTransitionEngineLTX23 = "ltx2_3"
-	GeneralGuideTransitionEngineWan22 = "wan2_2"
+	VideoGenerationProviderLocal       = "local"
+	VideoGenerationProviderJimeng      = "jimeng"
+	ImageGenModeKreaT2I                = "krea_t2i"
+	ImageGenModeH3VideoFrame           = "h3_video_frame"
+	H3FramePickFirst                   = "first"
+	H3FramePickMiddle                  = "middle"
+	H3FramePickLast                    = "last"
+	StoreVisitImageOrderBloggerFirst   = "blogger_first"
+	StoreVisitImageOrderSceneFirst     = "scene_first"
+	GeneralGuideTransitionEngineLTX23  = "ltx2_3"
+	GeneralGuideTransitionEngineWan22  = "wan2_2"
 	GeneralGuideTransitionEngineFFmpeg = "ffmpeg"
 )
 
@@ -70,28 +80,32 @@ var jimengVideoPresets = []jimengVideoPreset{
 // InitDefaultSettings initializes system settings with default values if they don't exist
 func InitDefaultSettings() {
 	defaults := map[string]string{
-		KeyImageHeight:          "1344",
-		KeyImageWidth:           "768",
-		KeyCharacterImageHeight: "1344",
-		KeyCharacterImageWidth:  "768",
-		KeyOptimizeClothing:     "false",
-		KeyVideoHeight:          "640",
-		KeyVideoWidth:           "640",
-		KeyVideoGenerationProvider: VideoGenerationProviderLocal,
-		KeyJimengAPIBase:           "https://visual.volcengineapi.com",
-		KeyJimengAccessKey:         "",
-		KeyJimengSecretKey:         "",
-		KeyJimengReqKey:            "jimeng_ti2v_v30_pro",
-		KeyJimengAspectRatio:       "16:9",
-		KeyLLMTimeoutMinutes:    "30",
-		KeyDefaultImageModel:    "",
-		KeyDefaultVideoModel:    "",
-		KeyGlobalSeed:           "-1",
+		KeyImageHeight:                   "1344",
+		KeyImageWidth:                    "768",
+		KeyCharacterImageHeight:          "1344",
+		KeyCharacterImageWidth:           "768",
+		KeyOptimizeClothing:              "false",
+		KeyVideoHeight:                   "640",
+		KeyVideoWidth:                    "640",
+		KeyVideoGenerationProvider:       VideoGenerationProviderLocal,
+		KeyJimengAPIBase:                 "https://visual.volcengineapi.com",
+		KeyJimengAccessKey:               "",
+		KeyJimengSecretKey:               "",
+		KeyJimengReqKey:                  "jimeng_ti2v_v30_pro",
+		KeyJimengAspectRatio:             "16:9",
+		KeyLLMTimeoutMinutes:             "30",
+		KeyDefaultImageModel:             "",
+		KeyDefaultVideoModel:             "",
+		KeyImageGenMode:                  ImageGenModeKreaT2I,
+		KeyH3VideoFramePick:              H3FramePickMiddle,
+		KeyH3VideoFramePrompt:            h3VideoFrameDefaultPrompt(),
+		KeyH3AutoSegmentThresholdSeconds: "5",
+		KeyGlobalSeed:                    "-1",
 		KeyStoreVisitImageReferenceOrder: StoreVisitImageOrderBloggerFirst,
 		KeyGeneralGuideTransitionEngine:  GeneralGuideTransitionEngineLTX23,
-		KeyComfyUIAddress:       "127.0.0.1:8188",
-		KeyComfyUIModelsDir:     "",
-		KeyFFmpegPath:           "",
+		KeyComfyUIAddress:                "127.0.0.1:8188",
+		KeyComfyUIModelsDir:              "",
+		KeyFFmpegPath:                    "",
 	}
 
 	for key, value := range defaults {
@@ -164,6 +178,14 @@ func getDescription(key string) string {
 		return "默认图片生成模型工作流"
 	case KeyDefaultVideoModel:
 		return "默认视频生成模型工作流"
+	case KeyImageGenMode:
+		return "图片生成方式（krea_t2i：文生图；h3_video_frame：MiniMax H3 短视频抽帧）"
+	case KeyH3VideoFramePick:
+		return "H3 抽帧位置（first：首帧；middle：中间帧；last：尾帧）"
+	case KeyH3VideoFramePrompt:
+		return "H3 抽帧模式附加提示词（追加到场景图/角色图提示词末尾，留空则不追加）"
+	case KeyH3AutoSegmentThresholdSeconds:
+		return "项目视频超过该秒数时自动使用 H3 ref2v 多段拼接（仅默认视频模型为 H3 时生效）"
 	case KeyGlobalSeed:
 		return "全局默认种子 (Seed)"
 	case KeyStoreVisitImageReferenceOrder:
@@ -402,12 +424,21 @@ func getConfiguredGlobalSeed() int64 {
 		}
 		seed, err := strconv.ParseInt(strings.TrimSpace(s.Value), 10, 64)
 		if err == nil {
-			return seed
+			return normalizeGlobalSeed(seed)
 		}
 		break
 	}
 
 	seed, _ := strconv.ParseInt(defaultSettingValue(KeyGlobalSeed), 10, 64)
+	return normalizeGlobalSeed(seed)
+}
+
+// normalizeGlobalSeed 将非法(<=0, 默认 -1 表示未配置/随机)的种子转为随机正数，
+// 确保写入 KSampler.seed 时通过 ComfyUI 的 min=0 校验。
+func normalizeGlobalSeed(seed int64) int64 {
+	if seed <= 0 {
+		seed = time.Now().UnixNano()
+	}
 	return seed
 }
 
@@ -451,6 +482,74 @@ func getConfiguredGeneralGuideTransitionEngine() string {
 	return normalizeGeneralGuideTransitionEngine(defaultSettingValue(KeyGeneralGuideTransitionEngine))
 }
 
+func normalizeImageGenMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case ImageGenModeH3VideoFrame:
+		return ImageGenModeH3VideoFrame
+	default:
+		return ImageGenModeKreaT2I
+	}
+}
+
+func getConfiguredImageGenMode() string {
+	var setting models.SystemSettings
+	if err := db.DB.Where("key = ?", KeyImageGenMode).First(&setting).Error; err == nil {
+		return normalizeImageGenMode(setting.Value)
+	}
+	return normalizeImageGenMode(defaultSettingValue(KeyImageGenMode))
+}
+
+func normalizeH3FramePick(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case H3FramePickFirst:
+		return H3FramePickFirst
+	case H3FramePickLast:
+		return H3FramePickLast
+	default:
+		return H3FramePickMiddle
+	}
+}
+
+func getConfiguredH3FramePick() string {
+	var setting models.SystemSettings
+	if err := db.DB.Where("key = ?", KeyH3VideoFramePick).First(&setting).Error; err == nil {
+		return normalizeH3FramePick(setting.Value)
+	}
+	return normalizeH3FramePick(defaultSettingValue(KeyH3VideoFramePick))
+}
+
+// getConfiguredH3AutoSegmentThresholdSeconds 返回 H3 自动多段拼接的时长阈值（秒）。
+// 非法值返回默认 5 秒；返回 0 表示未开启（设置值小于等于 0）。
+func getConfiguredH3AutoSegmentThresholdSeconds() int {
+	var setting models.SystemSettings
+	raw := defaultSettingValue(KeyH3AutoSegmentThresholdSeconds)
+	if err := db.DB.Where("key = ?", KeyH3AutoSegmentThresholdSeconds).First(&setting).Error; err == nil {
+		raw = strings.TrimSpace(setting.Value)
+	}
+	if raw == "" {
+		return 0
+	}
+	val, err := strconv.Atoi(raw)
+	if err != nil {
+		return 5
+	}
+	if val < 0 {
+		return 0
+	}
+	if val == 0 {
+		return 0
+	}
+	return val
+}
+
+func getConfiguredH3VideoFramePrompt() string {
+	var setting models.SystemSettings
+	if err := db.DB.Where("key = ?", KeyH3VideoFramePrompt).First(&setting).Error; err == nil {
+		return setting.Value
+	}
+	return defaultSettingValue(KeyH3VideoFramePrompt)
+}
+
 func defaultSettingValue(key string) string {
 	switch key {
 	case KeyImageHeight:
@@ -485,6 +584,14 @@ func defaultSettingValue(key string) string {
 		return ""
 	case KeyDefaultVideoModel:
 		return ""
+	case KeyImageGenMode:
+		return ImageGenModeKreaT2I
+	case KeyH3VideoFramePick:
+		return H3FramePickMiddle
+	case KeyH3VideoFramePrompt:
+		return h3VideoFrameDefaultPrompt()
+	case KeyH3AutoSegmentThresholdSeconds:
+		return "5"
 	case KeyGlobalSeed:
 		return "-1"
 	case KeyStoreVisitImageReferenceOrder:
@@ -552,6 +659,10 @@ func GetSettings(c *gin.Context) {
 			settingsMap[s.Key] = normalizeJimengAspectRatio(s.Value)
 		} else if s.Key == KeyGeneralGuideTransitionEngine {
 			settingsMap[s.Key] = normalizeGeneralGuideTransitionEngine(s.Value)
+		} else if s.Key == KeyImageGenMode {
+			settingsMap[s.Key] = normalizeImageGenMode(s.Value)
+		} else if s.Key == KeyH3VideoFramePick {
+			settingsMap[s.Key] = normalizeH3FramePick(s.Value)
 		} else {
 			settingsMap[s.Key] = s.Value
 		}
@@ -561,6 +672,11 @@ func GetSettings(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, settingsMap)
+}
+
+// GetH3PromptPresets 返回 H3 抽帧附加提示词的内置预设（只读，不落库）。
+func GetH3PromptPresets(c *gin.Context) {
+	c.JSON(http.StatusOK, h3VideoFramePromptPresets)
 }
 
 // UpdateSettings updates system settings

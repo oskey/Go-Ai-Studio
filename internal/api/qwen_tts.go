@@ -771,6 +771,9 @@ func requestQwenTTSAutoParseContent(provider models.LLMProvider, projectID uint,
 			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
 		},
 	}
+	if provider.CompatLMStudio {
+		req.ResponseFormat = nil
+	}
 	if taskID != "" {
 		task.GlobalTaskManager.UpdateTaskProgress(taskID, progress, progressMessage)
 	}

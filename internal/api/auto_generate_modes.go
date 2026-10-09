@@ -6,6 +6,7 @@ const (
 	AutoGenerateModeNarration   = "narration"
 	AutoGenerateModeHighQuality = "high_quality"
 	AutoGenerateModeStoryboard  = "storyboard"
+	AutoGenerateModeH3Short     = "h3_short"
 )
 
 func normalizeAutoGenerateGenerationMode(raw string, allowCharacterSpeech bool) string {
@@ -16,6 +17,10 @@ func normalizeAutoGenerateGenerationMode(raw string, allowCharacterSpeech bool) 
 		return AutoGenerateModeHighQuality
 	case AutoGenerateModeStoryboard:
 		return AutoGenerateModeStoryboard
+	case AutoGenerateModeH3Short:
+		return AutoGenerateModeH3Short
+	case "r2v":
+		return AutoGenerateModeH3Short
 	}
 	if allowCharacterSpeech {
 		return AutoGenerateModeHighQuality
@@ -25,7 +30,7 @@ func normalizeAutoGenerateGenerationMode(raw string, allowCharacterSpeech bool) 
 
 func autoGenerateModeAllowsCharacterSpeech(mode string) bool {
 	switch normalizeAutoGenerateGenerationMode(mode, false) {
-	case AutoGenerateModeHighQuality, AutoGenerateModeStoryboard:
+	case AutoGenerateModeHighQuality, AutoGenerateModeStoryboard, AutoGenerateModeH3Short:
 		return true
 	default:
 		return false
@@ -39,7 +44,7 @@ func autoGenerateModeRequiresEmptyNarration(mode string) bool {
 
 func autoGenerateModeUsesFlowingVideoPrompt(mode string) bool {
 	switch normalizeAutoGenerateGenerationMode(mode, false) {
-	case AutoGenerateModeHighQuality, AutoGenerateModeStoryboard:
+	case AutoGenerateModeHighQuality, AutoGenerateModeStoryboard, AutoGenerateModeH3Short:
 		return true
 	default:
 		return false
@@ -60,6 +65,11 @@ func inferGenerationModeFromPayload(payload *lightweightStoryResponse) string {
 	}
 	if hasFlowingVideoPrompt {
 		return AutoGenerateModeHighQuality
+	}
+	for _, scene := range payload.Scenes {
+		if strings.HasPrefix(strings.TrimSpace(scene.VideoPrompt), "integrated_multimodal_description:") {
+			return AutoGenerateModeH3Short
+		}
 	}
 	return AutoGenerateModeNarration
 }

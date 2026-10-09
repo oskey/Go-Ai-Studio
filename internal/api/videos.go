@@ -331,6 +331,11 @@ func reconcileVideoOutputsFromDisk(projectCode string, videos []models.Video) {
 	}
 
 	for i := range videos {
+		// 分段渲染进行中时禁止 reconcile 用单个 segment 提前覆盖为 generated，
+		// 否则 webui 会在拼接完成前就显示"可查看"（且播的是未拼接片段）。
+		if strings.TrimSpace(videos[i].Status) == "generating" {
+			continue
+		}
 		reconciledPath, ok := findLatestVideoOutputPath(projectCode, videos[i].ID)
 		if !ok {
 			continue
@@ -1142,7 +1147,10 @@ func resolveSelectedVideoWorkflowFamily() (string, error) {
 		if strings.Contains(name, "ltx") || strings.Contains(fileName, "ltx") {
 			return "ltx", nil
 		}
-		return "", fmt.Errorf("only the LTX video workflow is supported in this version")
+		if strings.Contains(name, "h3") || strings.Contains(fileName, "h3") {
+			return "r2v", nil
+		}
+		return "", fmt.Errorf("unsupported video workflow family: %s", workflowName)
 	}
 
 	return "", fmt.Errorf("workflow file for '%s' not found", workflowName)
@@ -1412,16 +1420,14 @@ func triggerVideoGeneration(video models.Video) (string, error) {
 	}
 
 	// Inject Input Image (Scene Generated Image)
-	// Need to find LoadImage node or similar. Video workflows usually take an image input.
-	// We need to identify the image input node.
-	// Strategy: Search for "LoadImage" node.
-	var imageNodeID string
+	// Video workflows may have multiple LoadImage nodes (e.g. first/last frame),
+	// inject the scene image into all of them.
+	var imageNodeIDs []string
 	for id, node := range wfJSON {
 		if nodeMap, ok := node.(map[string]interface{}); ok {
 			if classType, ok := nodeMap["class_type"].(string); ok {
 				if classType == "LoadImage" {
-					imageNodeID = id
-					break
+					imageNodeIDs = append(imageNodeIDs, id)
 				}
 			}
 		}
@@ -1441,12 +1447,12 @@ func triggerVideoGeneration(video models.Video) (string, error) {
 	uploadedName, err := UploadToComfyUIInput(absPath)
 	if err != nil {
 		Log(LogLevelError, "ComfyUI Upload Failed", fmt.Sprintf("Failed to upload scene image %s: %v", absPath, err))
-		if imageNodeID != "" {
-			setInput(imageNodeID, "image", absPath)
+		for _, id := range imageNodeIDs {
+			setInput(id, "image", absPath)
 		}
 	} else {
-		if imageNodeID != "" {
-			setInput(imageNodeID, "image", uploadedName)
+		for _, id := range imageNodeIDs {
+			setInput(id, "image", uploadedName)
 		}
 	}
 

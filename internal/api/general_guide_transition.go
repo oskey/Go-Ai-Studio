@@ -743,7 +743,7 @@ func extractGeneralGuideTransitionTailFrameAsset(project models.GeneralGuideProj
 		fmt.Sprintf("%s_tail_%d_%d.png", generalGuideTransitionFileKey(transition), targetFrame, time.Now().UnixNano()),
 	)
 	filter := fmt.Sprintf("select=eq(n\\,%d)", targetFrame)
-	if err := runFFmpeg("-i", absVideoPath, "-vf", filter, "-vsync", "vfr", "-frames:v", "1", savePath, "-y"); err != nil {
+	if err := runFFmpeg("-i", absVideoPath, "-vf", filter, "-frames:v", "1", savePath, "-y"); err != nil {
 		return "", err
 	}
 	return "/" + filepath.ToSlash(savePath), nil

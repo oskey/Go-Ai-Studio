@@ -151,8 +151,29 @@ func shouldUseDirectLLMEndpoint(provider models.LLMProvider) bool {
 	return strings.Contains(path, "/chat/completions")
 }
 
+// applyLMStudioReasoningBudget reserves enough output room for Qwen3-style
+// thinking models served by LM Studio. Without an explicit max_tokens, LM Studio
+// defaults to ~2048 output tokens, which a long "reasoning_content" preamble can
+// consume entirely, leaving the actual content empty (empty llm response).
+func applyLMStudioReasoningBudget(provider models.LLMProvider, req openai.ChatCompletionRequest) openai.ChatCompletionRequest {
+	if req.MaxTokens == 0 {
+		req.MaxTokens = provider.LMStudioMaxTokens
+	}
+	if req.MaxTokens == 0 {
+		req.MaxTokens = 8192
+	}
+	return req
+}
+
+// requestLLMContentStreaming strips the OpenAI-style json_object response_format
+// for providers explicitly configured as LM Studio compatible, which reject it
+// and only accept json_schema or text.
 func requestLLMContentStreaming(provider models.LLMProvider, req openai.ChatCompletionRequest, timeout time.Duration, taskID string, streamLogLabel string) (string, error) {
 	req = applyProviderAdvancedRequestParams(provider, req)
+	if provider.CompatLMStudio {
+		req.ResponseFormat = nil
+		req = applyLMStudioReasoningBudget(provider, req)
+	}
 	if shouldUseDirectLLMEndpoint(provider) {
 		return requestLLMContentStreamingDirect(provider, req, timeout, taskID, streamLogLabel)
 	}
@@ -161,6 +182,10 @@ func requestLLMContentStreaming(provider models.LLMProvider, req openai.ChatComp
 
 func requestLLMContentNonStreaming(provider models.LLMProvider, req openai.ChatCompletionRequest, timeout time.Duration, taskID string, streamLogLabel string) (string, error) {
 	req = applyProviderAdvancedRequestParams(provider, req)
+	if provider.CompatLMStudio {
+		req.ResponseFormat = nil
+		req = applyLMStudioReasoningBudget(provider, req)
+	}
 	if shouldUseDirectLLMEndpoint(provider) {
 		return requestLLMContentNonStreamingDirect(provider, req, timeout, taskID, streamLogLabel)
 	}

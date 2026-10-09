@@ -17,6 +17,9 @@ type LLMProvider struct {
 	EnableAdvancedRequestParams bool                   `json:"enable_advanced_request_params" gorm:"default:false"`
 	RequestMaxTokens            int                    `json:"request_max_tokens" gorm:"default:0"`
 	RequestTemperature          float32                `json:"request_temperature" gorm:"default:0"`
+	CompatLMStudio              bool                   `json:"compat_lm_studio" gorm:"default:false"`
+	LMStudioMaxTokens           int                    `json:"lm_studio_max_tokens" gorm:"default:8192"`
+	LMStudioContextWindow         int                    `json:"lm_studio_context_window" gorm:"default:40960"`
 	IsActive                    bool                   `json:"is_active" gorm:"default:false"`
 	UsageStats                  *LLMProviderUsageStats `json:"usage_stats,omitempty" gorm:"-"`
 	CreatedAt                   time.Time              `json:"created_at"`
@@ -323,6 +326,8 @@ type Scene struct {
 	Status            string      `json:"status" gorm:"column:image_status"`
 	GeneratedImage    string      `json:"generated_image" gorm:"column:generated_image"`
 	GeneratedWorkflow string      `json:"generated_workflow" gorm:"column:image_generated_workflow"`
+	RefImage          string      `json:"ref_image" gorm:"column:image_ref_image"`
+	UseRefImage       bool        `json:"use_ref_image" gorm:"column:image_use_ref_image"`
 	Characters        []Character `json:"characters" gorm:"many2many:shot_characters;foreignKey:ID;joinForeignKey:ShotID;References:ID;joinReferences:CharacterID"`
 	CreatedAt         time.Time   `json:"created_at"`
 	UpdatedAt         time.Time   `json:"updated_at"`
